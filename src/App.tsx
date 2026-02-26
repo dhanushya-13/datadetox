@@ -10,6 +10,7 @@ import {
   Search, 
   Bell,
   ShieldCheck,
+  Lock,
   Zap,
   Brain,
   Database,
@@ -20,7 +21,11 @@ import { Dashboard } from './components/Dashboard';
 import { AIAnalysis } from './components/AIAnalysis';
 import { CleanupView } from './components/CleanupView';
 import { WellnessView } from './components/WellnessView';
+import { DataSourcesView } from './components/DataSourcesView';
+import { BackupView } from './components/BackupView';
+import { PermissionsView } from './components/PermissionsView';
 import { Auth } from './components/Auth';
+import { AccessControlView } from './components/AccessControlView';
 import { mockDashboardData } from './mockData';
 import { cn } from './lib/utils';
 import { apiFetch } from './lib/api';
@@ -31,6 +36,8 @@ export default function App() {
   const [data, setData] = React.useState(mockDashboardData);
   const [wsStatus, setWsStatus] = React.useState('Connecting...');
   const [isInitialLoading, setIsInitialLoading] = React.useState(true);
+  const [needsAccessControl, setNeedsAccessControl] = React.useState(false);
+  const [theme, setTheme] = React.useState('light');
   const [scanProgress, setScanProgress] = React.useState<{ active: boolean; percent: number; currentFile: string }>({
     active: false,
     percent: 0,
@@ -41,12 +48,41 @@ export default function App() {
     const savedUser = localStorage.getItem('user');
     const token = localStorage.getItem('token');
     if (savedUser && token) {
-      setUser(JSON.parse(savedUser));
+      const parsedUser = JSON.parse(savedUser);
+      setUser(parsedUser);
+      fetchPreferences(parsedUser.id);
     } else {
       handleLogout();
     }
     setIsInitialLoading(false);
   }, []);
+
+  const fetchPreferences = async (userId: number) => {
+    try {
+      const prefs = await apiFetch<any>(`/api/preferences/${userId}`);
+      if (prefs.theme) setTheme(prefs.theme);
+    } catch (err) {
+      console.error('Failed to fetch preferences:', err);
+    }
+  };
+
+  React.useEffect(() => {
+    document.body.className = theme === 'light' ? '' : `theme-${theme}`;
+  }, [theme]);
+
+  const updateTheme = async (newTheme: string) => {
+    setTheme(newTheme);
+    if (user) {
+      try {
+        await apiFetch('/api/preferences', {
+          method: 'POST',
+          body: JSON.stringify({ userId: user.id, theme: newTheme }),
+        });
+      } catch (err) {
+        console.error('Failed to save theme:', err);
+      }
+    }
+  };
 
   const fetchDashboardData = async () => {
     if (!user) return;
@@ -64,6 +100,7 @@ export default function App() {
           ...prev,
           usedStorage,
           wellnessScore: Math.round(wellnessScore),
+          cleanupGoal: result.cleanupGoal,
           items: result.recommendations.map((r: any) => ({
             id: r.id,
             name: r.name,
@@ -124,6 +161,20 @@ export default function App() {
     setUser(null);
   };
 
+  const updateCleanupGoal = async (goalGB: number) => {
+    if (!user) return;
+    const goalBytes = goalGB * 1024 * 1024 * 1024;
+    try {
+      await apiFetch('/api/preferences', {
+        method: 'POST',
+        body: JSON.stringify({ userId: user.id, cleanupGoal: goalBytes }),
+      });
+      setData(prev => ({ ...prev, cleanupGoal: goalBytes }));
+    } catch (err) {
+      console.error('Failed to save cleanup goal:', err);
+    }
+  };
+
   const handleScan = async () => {
     if (!user) return;
     try {
@@ -181,15 +232,29 @@ export default function App() {
   }
 
   if (!user) {
-    return <Auth onLogin={setUser} />;
+    return <Auth onLogin={(u) => {
+      setUser(u);
+      setNeedsAccessControl(true);
+      fetchPreferences(u.id);
+    }} />;
   }
 
-  const renderContent = () => {
+  if (needsAccessControl) {
+    return <AccessControlView userId={user.id} onComplete={() => {
+      setNeedsAccessControl(false);
+      handleScan(); // Start detox process immediately after granting access
+    }} />;
+  }
+
+    const renderContent = () => {
     switch (activeTab) {
-      case 'dashboard': return <Dashboard data={data} onScan={handleScan} onTabChange={setActiveTab} scanProgress={scanProgress} />;
+      case 'dashboard': return <Dashboard data={data} onScan={handleScan} onTabChange={setActiveTab} scanProgress={scanProgress} onUpdateGoal={updateCleanupGoal} />;
       case 'analysis': return <AIAnalysis data={data} onAnalyze={handleAnalyze} />;
       case 'cleanup': return <CleanupView items={data.items} onCleanup={handleCleanup} />;
       case 'wellness': return <WellnessView metrics={data.metrics} />;
+      case 'sources': return <DataSourcesView onRefresh={fetchDashboardData} />;
+      case 'backup': return <BackupView />;
+      case 'permissions': return <PermissionsView />;
       default: return <Dashboard data={data} onScan={handleScan} onTabChange={setActiveTab} scanProgress={scanProgress} />;
     }
   };
@@ -199,10 +264,10 @@ export default function App() {
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-zinc-200/60 flex flex-col z-50">
         <div className="p-8 flex items-center gap-3">
-          <div className="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center text-white shadow-xl shadow-zinc-200">
+          <div className="w-10 h-10 bg-brand-500 rounded-xl flex items-center justify-center text-white shadow-xl shadow-brand-200">
             <Wind size={20} />
           </div>
-          <span className="font-bold text-xl tracking-tighter">DataDetox</span>
+          <span className="font-bold text-xl tracking-tighter text-brand-700">DataDetox</span>
         </div>
 
         <div className="px-6 mb-6">
@@ -221,8 +286,9 @@ export default function App() {
             { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
             { id: 'analysis', label: 'AI Intelligence', icon: Sparkles },
             { id: 'cleanup', label: 'Cleanup Center', icon: Trash2 },
-            { id: 'wellness', label: 'Digital Wellness', icon: Wind },
-            { id: 'stats', label: 'Analytics', icon: BarChart3 },
+            { id: 'sources', label: 'Data Sources', icon: Database },
+            { id: 'backup', label: 'Backup Space', icon: ShieldCheck },
+            { id: 'permissions', label: 'Access Control', icon: Lock },
           ].map((item) => (
             <button
               key={item.id}
@@ -230,8 +296,8 @@ export default function App() {
               className={cn(
                 "w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all duration-300 group relative",
                 activeTab === item.id 
-                  ? "bg-zinc-900 text-white shadow-2xl shadow-zinc-300" 
-                  : "text-zinc-400 hover:bg-zinc-50 hover:text-zinc-900"
+                  ? "bg-brand-500 text-white shadow-2xl shadow-brand-200" 
+                  : "text-muted hover:bg-brand-50 hover:text-brand-600"
               )}
             >
               <item.icon size={18} className={cn(
@@ -255,6 +321,24 @@ export default function App() {
             <Settings size={18} className="group-hover:rotate-45 transition-transform duration-500" />
             <span className="text-sm font-bold">Settings</span>
           </button>
+
+          <div className="pt-4 border-t border-zinc-100 flex items-center justify-between px-2">
+            {[
+              { id: 'light', color: 'bg-white border-zinc-200' },
+              { id: 'dark', color: 'bg-zinc-900 border-zinc-800' },
+              { id: 'ethereal', color: 'bg-blue-500 border-blue-400' },
+            ].map((t) => (
+              <button
+                key={t.id}
+                onClick={() => updateTheme(t.id)}
+                className={cn(
+                  "w-8 h-8 rounded-full border-2 transition-all",
+                  t.color,
+                  theme === t.id ? "scale-125 shadow-lg" : "opacity-50 hover:opacity-100"
+                )}
+              />
+            ))}
+          </div>
         </div>
       </aside>
 
@@ -289,7 +373,7 @@ export default function App() {
               onClick={handleLogout}
               className="flex items-center gap-3 p-1.5 pr-4 hover:bg-white rounded-2xl transition-all glass-card border-none shadow-none hover:shadow-md group"
             >
-              <div className="w-10 h-10 rounded-xl bg-zinc-900 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-zinc-200 group-hover:bg-red-500 transition-colors">
+              <div className="w-10 h-10 rounded-xl bg-brand-500 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-brand-200 group-hover:bg-red-500 transition-colors">
                 {user.username.substring(0, 2).toUpperCase()}
               </div>
               <div className="text-left hidden sm:block">

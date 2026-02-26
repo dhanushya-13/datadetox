@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Wind, ArrowRight, Lock, User, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Wind, ArrowRight, Lock, User, Sparkles, CheckCircle2, Mail } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiFetch } from '../lib/api';
 
@@ -41,9 +41,8 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     setError(null);
     setSuccess(null);
 
-    const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
-    
     try {
+      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
       const data = await apiFetch<any>(endpoint, {
         method: 'POST',
         body: JSON.stringify({ username, password }),
@@ -52,22 +51,8 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       if (data && data.token) {
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
-        
-        const successMsg = isLogin 
-          ? 'Neural Link Established. Accessing Dashboard...' 
-          : 'Account Created. Initializing Neural Link...';
-          
-        setSuccess(successMsg);
-        
-        setTimeout(() => {
-          onLogin(data.user);
-        }, 1000);
-      } else {
-        // Fallback for unexpected response structure
-        setIsLogin(true);
-        setSuccess('Registration successful. You can now sign in.');
-        setUsername(username);
-        setPassword('');
+        setSuccess('Neural Link Established. Accessing Dashboard...');
+        setTimeout(() => onLogin(data.user), 1000);
       }
     } catch (err: any) {
       setError(err.message || 'Authentication failed. Please check your credentials.');
@@ -126,6 +111,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                 className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-medium focus:ring-4 focus:ring-zinc-900/5 focus:border-zinc-200 transition-all outline-none"
               />
             </div>
+            
             {!isLogin && password && (
               <div className="px-2 space-y-2">
                 <div className="flex justify-between items-center">
@@ -185,13 +171,23 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           </button>
         </form>
 
-        <div className="mt-10 pt-8 border-t border-zinc-100 text-center">
+        <div className="mt-10 pt-8 border-t border-zinc-100 text-center space-y-4">
           <button 
             onClick={() => setIsLogin(!isLogin)}
             className="text-xs font-bold text-zinc-400 uppercase tracking-widest hover:text-zinc-900 transition-colors"
           >
             {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
           </button>
+          
+          {isLogin && (
+            <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-100">
+              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Demo Access</p>
+              <p className="text-xs font-medium text-zinc-600">
+                User: <span className="font-bold text-zinc-900">demo</span> • 
+                Pass: <span className="font-bold text-zinc-900">password123</span>
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="mt-8 flex items-center justify-center gap-2 text-[10px] font-bold text-zinc-300 uppercase tracking-[0.3em]">

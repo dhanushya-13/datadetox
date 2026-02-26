@@ -197,11 +197,16 @@ export const CleanupView: React.FC<CleanupViewProps> = ({ items, onCleanup }) =>
             </div>
 
             <button 
-              disabled={selectedItems.length === 0}
+              onClick={handleCleanupClick}
+              disabled={selectedItems.length === 0 || isCleaning}
               className="w-full py-5 bg-zinc-900 text-white rounded-2xl font-bold text-xs tracking-widest uppercase hover:bg-zinc-800 transition-all shadow-2xl shadow-zinc-200 disabled:opacity-20 disabled:shadow-none flex items-center justify-center gap-3"
             >
-              <Trash2 size={18} />
-              Cleanup Selected
+              {isCleaning ? (
+                <PlayCircle size={18} className="animate-spin" />
+              ) : (
+                <Trash2 size={18} />
+              )}
+              {isCleaning ? 'Cleaning...' : 'Cleanup Selected'}
             </button>
           </div>
         </div>

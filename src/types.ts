@@ -30,4 +30,5 @@ export interface DashboardData {
   items: StorageItem[];
   metrics: WellnessMetric[];
   forecast: ForecastPoint[];
+  cleanupGoal?: number; // in bytes
 }
