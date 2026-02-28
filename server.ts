@@ -167,6 +167,9 @@ async function startServer() {
 
     console.log(`Starting Real-time Deep Scan for user ${userId}`);
 
+    // Fetch user permissions
+    const permissions = db.prepare("SELECT * FROM user_permissions WHERE user_id = ?").get(userId) as any;
+
     // Send initial start message
     wss.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
@@ -174,22 +177,48 @@ async function startServer() {
       }
     });
 
+    // Determine which file types to generate based on permissions
+    const allowedTypes: string[] = [];
+    if (permissions?.photos_access) allowedTypes.push('image');
+    if (permissions?.videos_access) allowedTypes.push('video');
+    if (permissions?.documents_access) allowedTypes.push('document');
+    if (permissions?.files_access) allowedTypes.push('app', 'archive');
+    if (permissions?.email_access) allowedTypes.push('email');
+
+    if (allowedTypes.length === 0) {
+      allowedTypes.push('other'); // Fallback
+    }
+
     // Simulate a multi-step scan process
     const steps = 5;
-    const fileTypes = ['image', 'video', 'document', 'app'];
     
     for (let i = 1; i <= steps; i++) {
       // Wait a bit between steps
       await new Promise(resolve => setTimeout(resolve, 800));
 
-      const newFiles = Array.from({ length: 3 }).map((_, j) => ({
-        name: `realtime_file_${i}_${j}_${Math.floor(Math.random() * 1000)}.${fileTypes[Math.floor(Math.random() * fileTypes.length)] === 'image' ? 'jpg' : 'mp4'}`,
-        path: `/Users/detox/System/Scan/step_${i}`,
-        size: Math.floor(Math.random() * 200 * 1024 * 1024),
-        hash: Math.random().toString(36).substring(7),
-        type: fileTypes[Math.floor(Math.random() * fileTypes.length)],
-        lastAccessed: new Date(Date.now() - Math.random() * 10000000000).toISOString()
-      }));
+      const newFiles = Array.from({ length: 3 }).map((_, j) => {
+        const type = allowedTypes[Math.floor(Math.random() * allowedTypes.length)];
+        let extension = 'dat';
+        let path = '/Users/detox/System/Scan';
+        
+        switch(type) {
+          case 'image': extension = 'jpg'; path = '/Users/detox/Photos/2024'; break;
+          case 'video': extension = 'mp4'; path = '/Users/detox/Videos/Archive'; break;
+          case 'document': extension = 'pdf'; path = '/Users/detox/Documents/Work'; break;
+          case 'email': extension = 'eml'; path = '/Users/detox/Mail/Inbox'; break;
+          case 'app': extension = 'app'; path = '/Applications'; break;
+          case 'archive': extension = 'zip'; path = '/Users/detox/Backups'; break;
+        }
+
+        return {
+          name: `neural_data_${i}_${j}_${Math.floor(Math.random() * 1000)}.${extension}`,
+          path: path,
+          size: Math.floor(Math.random() * (type === 'video' ? 500 : 50) * 1024 * 1024),
+          hash: Math.random().toString(36).substring(7),
+          type: type,
+          lastAccessed: new Date(Date.now() - Math.random() * 10000000000).toISOString()
+        };
+      });
 
       const insertFile = db.prepare(`
         INSERT INTO files_metadata (user_id, name, path, size, hash, file_type, last_accessed)
@@ -206,10 +235,15 @@ async function startServer() {
           const result = insertFile.run(userId, file.name, file.path, file.size, file.hash, file.type, file.lastAccessed);
           const fileId = result.lastInsertRowid;
 
-          if (Math.random() > 0.6) {
-            const confidence = 80 + Math.floor(Math.random() * 19);
-            const risk = Math.random() > 0.5 ? 'high' : 'medium';
-            insertRecommendation.run(fileId, confidence, risk, "Real-time scan identified this as a potential cleanup candidate.");
+          if (Math.random() > 0.5) {
+            const confidence = 75 + Math.floor(Math.random() * 24);
+            const risk = Math.random() > 0.7 ? 'high' : 'medium';
+            let reason = "Neural analysis suggests this file is redundant.";
+            if (file.type === 'email') reason = "Old email thread with no recent activity.";
+            if (file.type === 'image') reason = "Potential duplicate or low-quality burst photo.";
+            if (file.type === 'video') reason = "Large media file not accessed in over 6 months.";
+            
+            insertRecommendation.run(fileId, confidence, risk, reason);
           }
         }
       });
@@ -246,29 +280,90 @@ async function startServer() {
   // Cleanup Execution
   app.post("/api/cleanup", (req, res) => {
     const { userId, itemIds } = req.body;
-    if (!userId || !itemIds || !Array.isArray(itemIds)) {
-      return res.status(400).json({ error: "User ID and item IDs array required" });
+    if (!userId || !itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
+      return res.status(400).json({ error: "User ID and non-empty item IDs array required" });
     }
 
     const placeholders = itemIds.map(() => '?').join(',');
-    const deleteRecommendations = db.prepare(`
-      UPDATE cleanup_recommendations 
-      SET status = 'approved' 
-      WHERE id IN (${placeholders})
-    `);
-
+    
     try {
-      deleteRecommendations.run(...itemIds);
+      // Get file IDs and total size first to create a backup record
+      const items = db.prepare(`
+        SELECT file_id, size FROM cleanup_recommendations r
+        JOIN files_metadata f ON r.file_id = f.id
+        WHERE r.id IN (${placeholders})
+      `).all(...itemIds) as any[];
+
+      const fileIds = items.map(i => i.file_id);
+      const totalSize = items.reduce((acc, i) => acc + i.size, 0);
+
+      // Create a backup record for these files
+      if (totalSize > 0) {
+        db.prepare(`
+          INSERT INTO backups (user_id, name, size, status)
+          VALUES (?, ?, ?, ?)
+        `).run(userId, `Cleanup_Archive_${new Date().toISOString().split('T')[0]}_${Math.floor(Math.random() * 1000)}`, totalSize, 'completed');
+      }
+
+      // Delete user decisions first (children of recommendations)
+      db.prepare(`
+        DELETE FROM user_decisions 
+        WHERE recommendation_id IN (${placeholders})
+      `).run(...itemIds);
+
+      // Delete recommendations first (the children of files)
+      db.prepare(`
+        DELETE FROM cleanup_recommendations 
+        WHERE id IN (${placeholders})
+      `).run(...itemIds);
+      
+      // Then delete the actual files from metadata (the parents)
+      if (fileIds.length > 0) {
+        const filePlaceholders = fileIds.map(() => '?').join(',');
+        db.prepare(`
+          DELETE FROM files_metadata 
+          WHERE id IN (${filePlaceholders})
+        `).run(...fileIds);
+      }
+
+      // Record trend after cleanup
+      const totalUsed = db.prepare("SELECT SUM(size) as total FROM files_metadata WHERE user_id = ?").get(userId) as any;
+      db.prepare("INSERT INTO storage_trends (user_id, total_used_size) VALUES (?, ?)").run(userId, totalUsed.total || 0);
+
       db.prepare("INSERT INTO audit_logs (user_id, action, details) VALUES (?, ?, ?)")
         .run(userId, "CLEANUP_EXECUTED", `Deleted ${itemIds.length} items`);
       res.json({ success: true, count: itemIds.length });
     } catch (e: any) {
+      console.error("Cleanup Error:", e);
       res.status(500).json({ error: e.message });
     }
   });
 
-  // AI Analysis Generation
-  app.post("/api/analyze", async (req, res) => {
+  // Storage Trends
+  app.get("/api/trends/:userId", (req, res) => {
+    const { userId } = req.params;
+    const trends = db.prepare(`
+      SELECT total_used_size as size, timestamp 
+      FROM storage_trends 
+      WHERE user_id = ? 
+      ORDER BY timestamp ASC
+    `).all(userId) as any[];
+
+    // If no trends, provide some mock historical data for visualization
+    if (trends.length < 2) {
+      const now = Date.now();
+      const mockTrends = Array.from({ length: 7 }).map((_, i) => ({
+        size: Math.floor(Math.random() * 50 * 1024 * 1024 * 1024) + (20 * 1024 * 1024 * 1024),
+        timestamp: new Date(now - (7 - i) * 24 * 60 * 60 * 1000).toISOString()
+      }));
+      return res.json(mockTrends);
+    }
+
+    res.json(trends);
+  });
+
+  // AI Analysis Stats
+  app.post("/api/analyze/stats", async (req, res) => {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: "User ID required" });
 
@@ -287,33 +382,7 @@ async function startServer() {
       flaggedSize: recommendations.reduce((acc, r) => acc + r.size, 0),
     };
 
-    const prompt = `
-      As a Digital Detox Specialist, analyze this user's storage profile:
-      - Total Files: ${stats.totalFiles}
-      - Total Storage: ${(stats.totalSize / (1024**3)).toFixed(2)} GB
-      - Flagged for Cleanup: ${stats.flaggedCount} items (${(stats.flaggedSize / (1024**2)).toFixed(2)} MB)
-      
-      Provide a concise, professional report in Markdown. 
-      Include:
-      1. A "Neural Balance" assessment.
-      2. Specific observations about their storage habits.
-      3. A 3-step action plan for their "Digital Detox".
-      Use a sophisticated, slightly futuristic tone.
-    `;
-
-    try {
-      const { GoogleGenAI } = await import("@google/genai");
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-      });
-
-      res.json({ analysis: response.text });
-    } catch (e: any) {
-      console.error("AI Analysis Error:", e);
-      res.status(500).json({ error: "Failed to generate AI analysis" });
-    }
+    res.json(stats);
   });
 
   // Connections
@@ -487,32 +556,10 @@ async function startServer() {
       db.prepare("INSERT INTO audit_logs (user_id, action, details) VALUES (?, ?, ?)")
         .run(userId, "FILES_UPLOADED", `Uploaded ${files.length} files manually`);
 
-      // Optional: Get a quick AI summary of the upload
-      let aiSummary = "";
-      try {
-        const { GoogleGenAI } = await import("@google/genai");
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        const prompt = `
-          Analyze these recently uploaded files for a user:
-          ${files.map(f => `- ${f.originalname} (${(f.size / 1024).toFixed(1)} KB)`).join('\n')}
-          
-          Provide a very brief (2 sentence) summary of the upload quality and any immediate concerns.
-        `;
-        const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: prompt,
-        });
-        aiSummary = response.text || "";
-      } catch (aiErr) {
-        console.error("AI Upload Summary Error:", aiErr);
-        aiSummary = "Files successfully indexed and analyzed by local heuristics.";
-      }
-
       res.json({ 
         success: true, 
         count: files.length, 
-        analysis: results,
-        aiSummary
+        analysis: results
       });
     } catch (e: any) {
       console.error("Upload Error:", e);
@@ -523,9 +570,14 @@ async function startServer() {
   // Google Drive OAuth (Simulated)
   app.get("/api/auth/google/url", (req, res) => {
     const { userId } = req.query;
+    
+    // Use APP_URL from env if available, otherwise construct from request
+    const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    const redirectUri = `${baseUrl}/api/auth/google/callback`;
+
     const params = new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID || "mock_client_id",
-      redirect_uri: `${req.protocol}://${req.get('host')}/api/auth/google/callback`,
+      redirect_uri: redirectUri,
       response_type: 'code',
       scope: 'https://www.googleapis.com/auth/drive.metadata.readonly',
       access_type: 'offline',

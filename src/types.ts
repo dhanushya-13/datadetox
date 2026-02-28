@@ -1,7 +1,7 @@
 export interface StorageItem {
   id: string;
   name: string;
-  type: 'file' | 'folder' | 'app';
+  type: 'file' | 'folder' | 'app' | 'image' | 'video' | 'document' | 'email';
   size: number; // in bytes
   lastAccessed: string;
   category: 'work' | 'media' | 'system' | 'other' | 'junk';
@@ -9,11 +9,17 @@ export interface StorageItem {
   path: string;
   confidenceScore?: number; // 0-100
   riskLevel?: 'low' | 'medium' | 'high';
+  reason?: string;
 }
 
 export interface ForecastPoint {
   date: string;
   predictedSize: number;
+}
+
+export interface TrendPoint {
+  timestamp: string;
+  size: number;
 }
 
 export interface WellnessMetric {
@@ -30,5 +36,6 @@ export interface DashboardData {
   items: StorageItem[];
   metrics: WellnessMetric[];
   forecast: ForecastPoint[];
+  trends: TrendPoint[];
   cleanupGoal?: number; // in bytes
 }

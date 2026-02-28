@@ -38,6 +38,37 @@
     --border: rgba(250, 250, 250, 0.1);
   }
 
+  .theme-dark body {
+    color-scheme: dark;
+  }
+
+  .theme-dark .text-zinc-900,
+  .theme-dark .text-brand-700 {
+    color: var(--text);
+  }
+
+  .theme-dark .text-zinc-600,
+  .theme-dark .text-zinc-400,
+  .theme-dark .text-muted {
+    color: var(--muted);
+  }
+
+  .theme-dark .bg-white,
+  .theme-dark .glass-card {
+    background-color: var(--card);
+  }
+
+  .theme-dark .bg-[#F5F5F7],
+  .theme-dark .bg-zinc-50 {
+    background-color: var(--bg);
+  }
+
+  .theme-dark .border-zinc-200,
+  .theme-dark .border-zinc-100,
+  .theme-dark .border-zinc-200\/60 {
+    border-color: var(--border);
+  }
+
   .theme-ethereal {
     --bg: #F5F7FF;
     --card: #FFFFFF;

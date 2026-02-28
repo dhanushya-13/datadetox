@@ -72,6 +72,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
     predictedSizeGB: p.predictedSize / (1024 ** 3)
   })), [data.forecast, data.cleanupGoal]);
 
+  const trendData = React.useMemo(() => data.trends.map(p => ({
+    ...p,
+    displayDate: format(new Date(p.timestamp), 'MM/dd'),
+    sizeGB: p.size / (1024 ** 3)
+  })), [data.trends]);
+
   return (
     <div className="space-y-10 pb-20">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -151,8 +157,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
 
           <div className="space-y-8">
             <div className="flex items-baseline gap-4">
-              <span className="text-8xl font-bold tracking-tighter leading-none text-brand-700">{usedGB}</span>
-              <span className="text-2xl font-medium text-brand-300">GB USED</span>
+              <span className="text-8xl font-black tracking-tighter leading-none text-zinc-900 drop-shadow-sm">{usedGB}</span>
+              <div className="flex flex-col">
+                <span className="text-2xl font-bold text-zinc-900">GB</span>
+                <span className="text-xs font-black text-red-500 uppercase tracking-widest -mt-1">Consumed</span>
+              </div>
             </div>
             
             <div className="space-y-4">
@@ -170,21 +179,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-8 pt-8 border-t border-zinc-100">
+          <div className="grid grid-cols-4 gap-8 pt-8 border-t border-brand-100">
             <div>
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Available</p>
-              <p className="text-xl font-bold">{freeGB} GB</p>
+              <p className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-1">Available</p>
+              <p className="text-xl font-bold text-brand-700">{freeGB} GB</p>
             </div>
             <div>
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Growth</p>
+              <p className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-1">Growth</p>
               <p className="text-xl font-bold text-accent-500">+2.4%</p>
             </div>
             <div>
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Efficiency</p>
-              <p className="text-xl font-bold">94.2%</p>
+              <p className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-1">Efficiency</p>
+              <p className="text-xl font-bold text-brand-700">94.2%</p>
             </div>
             <div>
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Disk Full In</p>
+              <p className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-1">Disk Full In</p>
               <p className="text-xl font-bold text-red-500">42 Days</p>
             </div>
           </div>
@@ -214,18 +223,77 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-6xl font-bold tracking-tighter leading-none">{data.wellnessScore}</span>
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em] mt-2">Score</span>
+              <span className="text-6xl font-bold tracking-tighter leading-none text-zinc-900">{data.wellnessScore}</span>
+              <span className="text-[10px] font-bold text-zinc-900/60 uppercase tracking-[0.2em] mt-2">Score</span>
             </div>
           </div>
           <h3 className="text-xl font-bold mb-3">Digital Wellness</h3>
-          <p className="text-sm text-zinc-400 leading-relaxed mb-8 px-4">Your digital environment is refined but has room for optimization.</p>
+          <p className="text-sm text-brand-100 leading-relaxed mb-8 px-4">Your digital environment is refined but has room for optimization.</p>
           <button 
             onClick={() => onTabChange('cleanup')}
-            className="w-full py-4 bg-white text-zinc-900 rounded-2xl font-bold text-xs tracking-widest uppercase hover:bg-zinc-100 transition-all"
+            className="w-full py-4 bg-amber-400 text-zinc-900 rounded-2xl font-bold text-xs tracking-widest uppercase hover:bg-amber-300 transition-all shadow-xl shadow-amber-500/40 hover:scale-[1.02] active:scale-[0.98]"
           >
             Optimize Now
           </button>
+        </motion.div>
+
+        {/* Historical Trends Bento */}
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="md:col-span-12 glass-card rounded-[2.5rem] p-10"
+        >
+          <div className="flex items-center justify-between mb-10">
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-brand-400 uppercase tracking-[0.2em]">Historical Analysis</span>
+              <h3 className="text-xl font-bold tracking-tight">Storage Velocity</h3>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-brand-50 rounded-full border border-brand-100">
+              <TrendingUp size={14} className="text-brand-500" />
+              <span className="text-[10px] font-bold text-brand-600 uppercase">Last 14 Days</span>
+            </div>
+          </div>
+
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trendData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                <XAxis 
+                  dataKey="displayDate" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fontSize: 9, fill: 'var(--muted)', fontWeight: 700 }} 
+                />
+                <YAxis 
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 9, fill: 'var(--muted)', fontWeight: 700 }}
+                  unit="GB"
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    borderRadius: '20px', 
+                    border: 'none', 
+                    boxShadow: '0 20px 50px rgba(0,0,0,0.1)', 
+                    padding: '16px',
+                    backgroundColor: 'var(--card)',
+                    color: 'var(--text)'
+                  }}
+                  labelStyle={{ fontWeight: 800, fontSize: '12px', marginBottom: '4px', color: 'var(--text)' }}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="sizeGB" 
+                  stroke="var(--accent)" 
+                  strokeWidth={3}
+                  dot={{ r: 4, fill: 'var(--accent)', strokeWidth: 2, stroke: 'var(--card)' }}
+                  activeDot={{ r: 6, strokeWidth: 0 }}
+                  name="Used Storage"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         </motion.div>
 
         {/* Forecast Bento */}
@@ -237,25 +305,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
         >
           <div className="flex items-center justify-between mb-10">
             <div className="space-y-1">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">Predictive Model v2.4</span>
+              <span className="text-[10px] font-bold text-brand-400 uppercase tracking-[0.2em]">Predictive Model v2.4</span>
               <h3 className="text-xl font-bold tracking-tight">Storage Forecast</h3>
             </div>
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-50 rounded-full border border-zinc-100">
-              <Calendar size={14} className="text-zinc-400" />
-              <span className="text-[10px] font-bold text-zinc-500 uppercase">Next 12 Months</span>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-brand-50 rounded-full border border-brand-100">
+              <Calendar size={14} className="text-brand-500" />
+              <span className="text-[10px] font-bold text-brand-600 uppercase">Next 12 Months</span>
             </div>
           </div>
 
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-zinc-900" />
-                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Predicted</span>
+                <div className="w-3 h-3 rounded-full bg-brand-500" />
+                <span className="text-[10px] font-bold text-muted uppercase tracking-widest">Predicted</span>
               </div>
               {data.cleanupGoal && (
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Goal ({goalGB} GB)</span>
+                  <div className="w-3 h-3 rounded-full bg-accent-500" />
+                  <span className="text-[10px] font-bold text-muted uppercase tracking-widest">Goal ({goalGB} GB)</span>
                 </div>
               )}
             </div>
@@ -268,11 +336,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
                   value={newGoal}
                   onChange={(e) => setNewGoal(e.target.value)}
                   placeholder="Goal (GB)"
-                  className="w-24 px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-bold outline-none focus:border-zinc-900 transition-all"
+                  className="w-24 px-3 py-1.5 bg-brand-50 border border-brand-200 rounded-lg text-xs font-bold outline-none focus:border-brand-500 transition-all"
                   autoFocus
                 />
-                <button type="submit" className="px-3 py-1.5 bg-zinc-900 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest">Set</button>
-                <button type="button" onClick={() => setIsEditingGoal(false)} className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Cancel</button>
+                <button type="submit" className="px-3 py-1.5 bg-brand-500 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest">Set</button>
+                <button type="button" onClick={() => setIsEditingGoal(false)} className="text-[10px] font-bold text-muted uppercase tracking-widest">Cancel</button>
               </form>
             ) : (
               <button 
@@ -280,7 +348,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
                   setNewGoal(goalGB || '');
                   setIsEditingGoal(true);
                 }}
-                className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest hover:text-zinc-900 transition-colors flex items-center gap-1"
+                className="text-[10px] font-bold text-muted uppercase tracking-widest hover:text-brand-600 transition-colors flex items-center gap-1"
               >
                 <TrendingDown size={12} />
                 {data.cleanupGoal ? 'Adjust Goal' : 'Set Cleanup Goal'}
@@ -293,31 +361,38 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
               <AreaChart data={forecastData}>
                 <defs>
                   <linearGradient id="forecastGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#000" stopOpacity={0.05}/>
-                    <stop offset="95%" stopColor="#000" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f4f4f5" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                 <XAxis 
                   dataKey="displayDate" 
                   axisLine={false} 
                   tickLine={false} 
-                  tick={{ fontSize: 9, fill: '#a1a1aa', fontWeight: 700 }} 
+                  tick={{ fontSize: 9, fill: 'var(--muted)', fontWeight: 700 }} 
                 />
                 <YAxis 
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fontSize: 9, fill: '#a1a1aa', fontWeight: 700 }}
+                  tick={{ fontSize: 9, fill: 'var(--muted)', fontWeight: 700 }}
                   unit="GB"
                 />
                 <Tooltip 
-                  contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 50px rgba(0,0,0,0.1)', padding: '16px' }}
-                  labelStyle={{ fontWeight: 800, fontSize: '12px', marginBottom: '4px' }}
+                  contentStyle={{ 
+                    borderRadius: '20px', 
+                    border: 'none', 
+                    boxShadow: '0 20px 50px rgba(0,0,0,0.1)', 
+                    padding: '16px',
+                    backgroundColor: 'var(--card)',
+                    color: 'var(--text)'
+                  }}
+                  labelStyle={{ fontWeight: 800, fontSize: '12px', marginBottom: '4px', color: 'var(--text)' }}
                 />
                 <Area 
                   type="monotone" 
                   dataKey="predictedSizeGB" 
-                  stroke="#000" 
+                  stroke="var(--accent)" 
                   strokeWidth={3}
                   fillOpacity={1} 
                   fill="url(#forecastGradient)" 
@@ -327,7 +402,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
                   <Line 
                     type="monotone" 
                     dataKey="goal" 
-                    stroke="#10b981" 
+                    stroke="var(--accent)" 
                     strokeWidth={2}
                     strokeDasharray="5 5"
                     dot={false}
@@ -348,10 +423,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
         >
           <div className="flex items-center justify-between mb-8">
             <div className="space-y-1">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">Risk Assessment</span>
+              <span className="text-[10px] font-bold text-brand-400 uppercase tracking-[0.2em]">Risk Assessment</span>
               <h3 className="text-xl font-bold tracking-tight">AI Flagged Items</h3>
             </div>
-            <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center text-amber-600 border border-amber-100">
+            <div className="w-10 h-10 bg-accent-50 rounded-xl flex items-center justify-center text-accent-600 border border-accent-100">
               <ShieldAlert size={20} />
             </div>
           </div>
@@ -360,26 +435,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
             {data.items.map((item, idx) => (
               <div 
                 key={item.id}
-                className="p-4 bg-zinc-50 rounded-2xl border border-zinc-100 hover:border-zinc-300 transition-all group flex items-center gap-4 cursor-pointer"
+                className="p-4 bg-brand-50/30 rounded-2xl border border-brand-100 hover:border-brand-300 transition-all group flex items-center gap-4 cursor-pointer"
               >
                 <div className={cn(
                   "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
-                  item.riskLevel === 'high' ? "bg-red-50 text-red-500" : "bg-white text-zinc-400 group-hover:text-zinc-900"
+                  item.riskLevel === 'high' ? "bg-red-50 text-red-500" : "bg-white text-brand-400 group-hover:text-brand-600"
                 )}>
                   {item.type === 'app' ? <Box size={18} /> : <FileText size={18} />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold truncate">{item.name}</p>
+                  <p className="text-sm font-bold truncate text-brand-700">{item.name}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">{item.confidenceScore}% Match</span>
-                    <div className="w-1 h-1 rounded-full bg-zinc-200" />
+                    <span className="text-[9px] font-bold text-brand-400 uppercase tracking-wider">{item.confidenceScore}% Match</span>
+                    <div className="w-1 h-1 rounded-full bg-brand-200" />
                     <span className={cn(
                       "text-[9px] font-bold uppercase tracking-wider",
-                      item.riskLevel === 'high' ? "text-red-500" : "text-amber-500"
+                      item.riskLevel === 'high' ? "text-red-500" : "text-accent-500"
                     )}>{item.riskLevel} Risk</span>
                   </div>
                 </div>
-                <ChevronRight size={14} className="text-zinc-300 group-hover:translate-x-1 transition-transform" />
+                <ChevronRight size={14} className="text-brand-300 group-hover:translate-x-1 transition-transform" />
               </div>
             ))}
           </div>

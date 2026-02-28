@@ -58,6 +58,39 @@ const generateMockFiles = (): StorageItem[] => {
       path: '/Library/Caches/Cache_Log_2023.txt',
       confidenceScore: 100,
       riskLevel: 'low'
+    },
+    {
+      id: '6',
+      name: 'Neural_Network_Draft.pdf',
+      type: 'document',
+      size: 1024 * 1024 * 15,
+      lastAccessed: subDays(new Date(), 5).toISOString(),
+      category: 'work',
+      path: '/Documents/Neural_Network_Draft.pdf',
+      confidenceScore: 85,
+      riskLevel: 'low'
+    },
+    {
+      id: '7',
+      name: 'Family_Reunion_2023.jpg',
+      type: 'image',
+      size: 1024 * 1024 * 8,
+      lastAccessed: subMonths(new Date(), 4).toISOString(),
+      category: 'media',
+      path: '/Photos/Family_Reunion_2023.jpg',
+      confidenceScore: 60,
+      riskLevel: 'medium'
+    },
+    {
+      id: '8',
+      name: 'Project_Proposal_v4.eml',
+      type: 'email',
+      size: 1024 * 50,
+      lastAccessed: subMonths(new Date(), 1).toISOString(),
+      category: 'work',
+      path: '/Mail/Inbox/Project_Proposal_v4.eml',
+      confidenceScore: 92,
+      riskLevel: 'low'
     }
   ];
   return items;
@@ -71,8 +104,8 @@ const generateForecast = () => {
 };
 
 export const mockDashboardData: DashboardData = {
-  totalStorage: 1024 * 1024 * 1024 * 512, // 512GB
-  usedStorage: 1024 * 1024 * 1024 * 420, // 420GB
+  totalStorage: 1024 * 1024 * 1024 * 400, // 400GB
+  usedStorage: 1024 * 1024 * 1024 * 320, // 320GB
   wellnessScore: 68,
   items: generateMockFiles(),
   metrics: [
@@ -80,5 +113,9 @@ export const mockDashboardData: DashboardData = {
     { label: 'Storage Efficiency', value: 45, trend: 'down', status: 'warning' },
     { label: 'Organization', value: 58, trend: 'stable', status: 'warning' }
   ],
-  forecast: generateForecast()
+  forecast: generateForecast(),
+  trends: Array.from({ length: 14 }).map((_, i) => ({
+    timestamp: subDays(new Date(), 14 - i).toISOString(),
+    size: 1024 * 1024 * 1024 * (380 + i * 2 + Math.random() * 5)
+  }))
 };

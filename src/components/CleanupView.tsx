@@ -19,13 +19,15 @@ import { cn } from '../lib/utils';
 interface CleanupViewProps {
   items: StorageItem[];
   onCleanup: (itemIds: string[]) => Promise<void>;
+  onTabChange?: (tab: string) => void;
 }
 
-export const CleanupView: React.FC<CleanupViewProps> = ({ items, onCleanup }) => {
+export const CleanupView: React.FC<CleanupViewProps> = ({ items, onCleanup, onTabChange }) => {
   const [selectedItems, setSelectedItems] = React.useState<string[]>([]);
   const [filter, setFilter] = React.useState<'all' | 'duplicates' | 'large'>('all');
   const [isSimulating, setIsSimulating] = React.useState(false);
   const [isCleaning, setIsCleaning] = React.useState(false);
+  const [showSuccess, setShowSuccess] = React.useState(false);
 
   const filteredItems = items.filter(item => {
     if (filter === 'duplicates') return item.isDuplicate;
@@ -44,6 +46,8 @@ export const CleanupView: React.FC<CleanupViewProps> = ({ items, onCleanup }) =>
     try {
       await onCleanup(selectedItems);
       setSelectedItems([]);
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 8000);
     } finally {
       setIsCleaning(false);
     }
@@ -61,6 +65,10 @@ export const CleanupView: React.FC<CleanupViewProps> = ({ items, onCleanup }) =>
           <p className="text-zinc-400 font-medium text-sm tracking-wide uppercase">Review and safely remove redundant data</p>
         </div>
         <div className="flex items-center gap-4">
+          <div className="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100 flex items-center gap-2">
+            <ShieldCheck size={14} />
+            <span className="text-[10px] font-bold uppercase tracking-widest">Neural Link Active</span>
+          </div>
           <button 
             onClick={() => setIsSimulating(!isSimulating)}
             className={cn(
@@ -190,9 +198,9 @@ export const CleanupView: React.FC<CleanupViewProps> = ({ items, onCleanup }) =>
             </div>
 
             <div className="p-6 bg-zinc-50 rounded-2xl border border-zinc-100 flex gap-4 mb-10">
-              <AlertTriangle className="text-zinc-400 shrink-0" size={20} />
+              <Archive className="text-brand-500 shrink-0" size={20} />
               <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
-                Items will be moved to a temporary backup folder for 30 days before permanent deletion.
+                Cleanup items are automatically archived to your <span className="text-zinc-900 font-bold">Backup Space</span> before removal from active storage.
               </p>
             </div>
 
@@ -208,6 +216,33 @@ export const CleanupView: React.FC<CleanupViewProps> = ({ items, onCleanup }) =>
               )}
               {isCleaning ? 'Cleaning...' : 'Cleanup Selected'}
             </button>
+
+            <AnimatePresence>
+              {showSuccess && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="mt-6 p-6 bg-emerald-50 border border-emerald-100 rounded-2xl space-y-4"
+                >
+                  <div className="flex items-center gap-3 text-emerald-700">
+                    <ShieldCheck size={20} />
+                    <p className="text-xs font-bold uppercase tracking-widest">Cleanup Successful</p>
+                  </div>
+                  <p className="text-[11px] text-emerald-600 font-medium leading-relaxed">
+                    Your files have been safely archived. You can view them in the Backup Space.
+                  </p>
+                  {onTabChange && (
+                    <button 
+                      onClick={() => onTabChange('backup')}
+                      className="w-full py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all"
+                    >
+                      View in Backup Space
+                    </button>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </div>

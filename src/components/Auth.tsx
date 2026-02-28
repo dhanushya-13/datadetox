@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Wind, ArrowRight, Lock, User, Sparkles, CheckCircle2, Mail } from 'lucide-react';
+import { Wind, ArrowRight, Lock, User, Sparkles, CheckCircle2, Mail, Eye, EyeOff } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiFetch } from '../lib/api';
 
@@ -12,6 +12,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [isLogin, setIsLogin] = React.useState(true);
   const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [showPassword, setShowPassword] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState<string | null>(null);
@@ -103,13 +104,20 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             <div className="relative group">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-zinc-900 transition-colors" size={18} />
               <input 
-                type="password" 
+                type={showPassword ? "text" : "password"} 
                 placeholder="Password" 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-medium focus:ring-4 focus:ring-zinc-900/5 focus:border-zinc-200 transition-all outline-none"
+                className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl py-4 pl-12 pr-12 text-sm font-medium focus:ring-4 focus:ring-zinc-900/5 focus:border-zinc-200 transition-all outline-none"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-900 transition-colors"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
             
             {!isLogin && password && (
@@ -168,6 +176,23 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           >
             {loading ? 'Authenticating...' : isLogin ? 'Sign In' : 'Create Account'}
             {!loading && <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />}
+          </button>
+
+          <div className="relative py-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-zinc-100"></div>
+            </div>
+            <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold">
+              <span className="bg-white px-4 text-zinc-300">Or continue with</span>
+            </div>
+          </div>
+
+          <button 
+            type="button"
+            className="w-full py-4 bg-white border border-zinc-100 text-zinc-900 rounded-2xl font-bold text-xs tracking-widest uppercase hover:bg-zinc-50 transition-all flex items-center justify-center gap-3"
+          >
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/smartlock/google.svg" className="w-5 h-5" alt="Google" />
+            Sign in with Google
           </button>
         </form>
 

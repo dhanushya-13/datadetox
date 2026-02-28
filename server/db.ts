@@ -15,32 +15,7 @@ db.exec(`
     verification_code TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
-`);
 
-// Migration: Add missing columns if they don't exist
-const tableInfo = db.prepare("PRAGMA table_info(users)").all() as any[];
-const columns = tableInfo.map(info => info.name);
-
-if (!columns.includes('email')) {
-  db.exec("ALTER TABLE users ADD COLUMN email TEXT UNIQUE");
-}
-if (!columns.includes('is_verified')) {
-  db.exec("ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0");
-}
-if (!columns.includes('verification_code')) {
-  db.exec("ALTER TABLE users ADD COLUMN verification_code TEXT");
-}
-
-const prefTableInfo = db.prepare("PRAGMA table_info(user_preferences)").all() as any[];
-const prefColumns = prefTableInfo.map(info => info.name);
-if (!prefColumns.includes('cleanup_goal')) {
-  db.exec("ALTER TABLE user_preferences ADD COLUMN cleanup_goal INTEGER");
-}
-
-// Ensure demo user has an email if it exists without one
-db.exec("UPDATE users SET email = 'demo@datadetox.ai' WHERE username = 'demo' AND email IS NULL");
-
-db.exec(`
   CREATE TABLE IF NOT EXISTS user_permissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER UNIQUE,
@@ -134,5 +109,28 @@ db.exec(`
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
 `);
+
+// Migration: Add missing columns if they don't exist
+const tableInfo = db.prepare("PRAGMA table_info(users)").all() as any[];
+const columns = tableInfo.map(info => info.name);
+
+if (!columns.includes('email')) {
+  db.exec("ALTER TABLE users ADD COLUMN email TEXT UNIQUE");
+}
+if (!columns.includes('is_verified')) {
+  db.exec("ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0");
+}
+if (!columns.includes('verification_code')) {
+  db.exec("ALTER TABLE users ADD COLUMN verification_code TEXT");
+}
+
+const prefTableInfo = db.prepare("PRAGMA table_info(user_preferences)").all() as any[];
+const prefColumns = prefTableInfo.map(info => info.name);
+if (!prefColumns.includes('cleanup_goal')) {
+  db.exec("ALTER TABLE user_preferences ADD COLUMN cleanup_goal INTEGER");
+}
+
+// Ensure demo user has an email if it exists without one
+db.exec("UPDATE users SET email = 'demo@datadetox.ai' WHERE username = 'demo' AND email IS NULL");
 
 export default db;

@@ -38,11 +38,31 @@ export default function App() {
   const [isInitialLoading, setIsInitialLoading] = React.useState(true);
   const [needsAccessControl, setNeedsAccessControl] = React.useState(false);
   const [theme, setTheme] = React.useState('light');
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [showNotifications, setShowNotifications] = React.useState(false);
+  const [notifications, setNotifications] = React.useState([
+    { id: 1, title: 'Neural Scan Complete', time: '2m ago', icon: <Zap size={14} />, type: 'scan', read: false },
+    { id: 2, title: 'Security Alert: New Device', time: '1h ago', icon: <ShieldCheck size={14} />, type: 'security', read: false },
+    { id: 3, title: 'Storage Optimization Ready', time: '3h ago', icon: <Activity size={14} />, type: 'cleanup', read: false },
+  ]);
   const [scanProgress, setScanProgress] = React.useState<{ active: boolean; percent: number; currentFile: string }>({
     active: false,
     percent: 0,
     currentFile: ''
   });
+
+  const filteredData = React.useMemo(() => {
+    if (!searchQuery) return data;
+    const query = searchQuery.toLowerCase();
+    return {
+      ...data,
+      items: data.items.filter(item => 
+        item.name.toLowerCase().includes(query) || 
+        item.type.toLowerCase().includes(query) ||
+        item.reason?.toLowerCase().includes(query)
+      )
+    };
+  }, [data, searchQuery]);
 
   React.useEffect(() => {
     const savedUser = localStorage.getItem('user');
@@ -87,10 +107,14 @@ export default function App() {
   const fetchDashboardData = async () => {
     if (!user) return;
     try {
-      const result = await apiFetch<any>(`/api/dashboard/${user.id}`);
+      const [result, trends] = await Promise.all([
+        apiFetch<any>(`/api/dashboard/${user.id}`),
+        apiFetch<any[]>(`/api/trends/${user.id}`)
+      ]);
+
       if (result) {
         // Map backend data to DashboardData structure
-        const totalStorage = 512 * 1024 * 1024 * 1024; // 512GB
+        const totalStorage = 400 * 1024 * 1024 * 1024; // 400GB
         const usedStorage = result.files.reduce((acc: number, f: any) => acc + f.size, 0);
         
         // Simple wellness score calculation
@@ -101,6 +125,7 @@ export default function App() {
           usedStorage,
           wellnessScore: Math.round(wellnessScore),
           cleanupGoal: result.cleanupGoal,
+          trends: trends || [],
           items: result.recommendations.map((r: any) => ({
             id: r.id,
             name: r.name,
@@ -146,6 +171,19 @@ export default function App() {
         console.log('Scan complete from agent:', msg.count);
         setScanProgress({ active: false, percent: 100, currentFile: 'Complete' });
         fetchDashboardData();
+        
+        // Add a new notification
+        setNotifications(prev => [
+          { 
+            id: Date.now(), 
+            title: `Neural Scan Complete: ${msg.count} files analyzed`, 
+            time: 'Just now', 
+            icon: <Zap size={14} />, 
+            type: 'scan',
+            read: false 
+          },
+          ...prev
+        ]);
       }
     };
     socket.onclose = () => setWsStatus('Neural Link Offline');
@@ -203,11 +241,33 @@ export default function App() {
   const handleAnalyze = async () => {
     if (!user) return;
     try {
-      const result = await apiFetch<any>('/api/analyze', {
+      const stats = await apiFetch<any>('/api/analyze/stats', {
         method: 'POST',
         body: JSON.stringify({ userId: user.id }),
       });
-      return result.analysis;
+
+      const prompt = `
+        As a Digital Detox Specialist, analyze this user's storage profile:
+        - Total Files: ${stats.totalFiles}
+        - Total Storage: ${(stats.totalSize / (1024**3)).toFixed(2)} GB
+        - Flagged for Cleanup: ${stats.flaggedCount} items (${(stats.flaggedSize / (1024**2)).toFixed(2)} MB)
+        
+        Provide a concise, professional report in Markdown. 
+        Include:
+        1. A "Neural Balance" assessment.
+        2. Specific observations about their storage habits.
+        3. A 3-step action plan for their "Digital Detox".
+        Use a sophisticated, slightly futuristic tone.
+      `;
+
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+      });
+
+      return response.text;
     } catch (err) {
       console.error('Analysis failed:', err);
       return null;
@@ -248,34 +308,75 @@ export default function App() {
 
     const renderContent = () => {
     switch (activeTab) {
-      case 'dashboard': return <Dashboard data={data} onScan={handleScan} onTabChange={setActiveTab} scanProgress={scanProgress} onUpdateGoal={updateCleanupGoal} />;
-      case 'analysis': return <AIAnalysis data={data} onAnalyze={handleAnalyze} />;
-      case 'cleanup': return <CleanupView items={data.items} onCleanup={handleCleanup} />;
-      case 'wellness': return <WellnessView metrics={data.metrics} />;
+      case 'dashboard': return <Dashboard data={filteredData} onScan={handleScan} onTabChange={setActiveTab} scanProgress={scanProgress} onUpdateGoal={updateCleanupGoal} />;
+      case 'analysis': return <AIAnalysis data={filteredData} onAnalyze={handleAnalyze} onDetox={handleCleanup} />;
+      case 'cleanup': return <CleanupView items={filteredData.items} onCleanup={handleCleanup} onTabChange={setActiveTab} />;
+      case 'wellness': return <WellnessView metrics={filteredData.metrics} />;
       case 'sources': return <DataSourcesView onRefresh={fetchDashboardData} />;
       case 'backup': return <BackupView />;
       case 'permissions': return <PermissionsView />;
-      default: return <Dashboard data={data} onScan={handleScan} onTabChange={setActiveTab} scanProgress={scanProgress} />;
+      case 'settings': return (
+        <div className="space-y-8 pb-20 overflow-y-auto max-h-full custom-scrollbar">
+          <header className="space-y-1">
+            <h1 className="text-4xl font-bold tracking-tight text-zinc-900 font-serif italic">System Settings</h1>
+            <p className="text-zinc-400 font-medium text-sm tracking-wide uppercase">Configure your neural experience</p>
+          </header>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="glass-card rounded-[2rem] p-8 space-y-6">
+              <h3 className="font-bold text-lg">Appearance</h3>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Theme Mode</span>
+                <div className="flex gap-2">
+                  {['light', 'dark', 'ethereal'].map(t => (
+                    <button
+                      key={t}
+                      onClick={() => updateTheme(t)}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all",
+                        theme === t ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200"
+                      )}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="glass-card rounded-[2rem] p-8 space-y-6">
+              <h3 className="font-bold text-lg">Notifications</h3>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Neural Alerts</span>
+                <div className="w-12 h-6 bg-emerald-500 rounded-full relative">
+                  <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+      default: return <Dashboard data={filteredData} onScan={handleScan} onTabChange={setActiveTab} scanProgress={scanProgress} />;
     }
   };
 
   return (
     <div className="flex h-screen bg-[#F5F5F7] overflow-hidden selection:bg-zinc-900 selection:text-white">
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-zinc-200/60 flex flex-col z-50">
-        <div className="p-8 flex items-center gap-3">
+      <aside className="w-64 bg-white border-r border-zinc-200/60 flex flex-col z-50 overflow-y-auto custom-scrollbar">
+        <div className="p-8 flex items-center gap-3 shrink-0">
           <div className="w-10 h-10 bg-brand-500 rounded-xl flex items-center justify-center text-white shadow-xl shadow-brand-200">
             <Wind size={20} />
           </div>
           <span className="font-bold text-xl tracking-tighter text-brand-700">DataDetox</span>
         </div>
 
-        <div className="px-6 mb-6">
+        <div className="px-6 mb-6 shrink-0">
           <div className="relative group">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-300 group-focus-within:text-zinc-900 transition-colors" size={16} />
             <input 
               type="text" 
               placeholder="Deep search..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl py-3 pl-11 pr-4 text-xs font-bold tracking-tight placeholder:text-zinc-300 focus:outline-none focus:border-zinc-900 focus:bg-white transition-all"
             />
           </div>
@@ -312,13 +413,19 @@ export default function App() {
           ))}
         </nav>
 
-        <div className="p-6 border-t border-zinc-100 space-y-4">
+        <div className="p-6 border-t border-zinc-100 space-y-4 shrink-0">
           <div className="flex items-center gap-3 px-4 py-2 bg-zinc-50 rounded-xl border border-zinc-100">
             <div className={cn("w-2 h-2 rounded-full animate-pulse", wsStatus.includes('Active') ? "bg-emerald-500" : "bg-amber-500")} />
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{wsStatus}</span>
           </div>
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-zinc-400 hover:bg-zinc-50 hover:text-zinc-900 transition-all group">
-            <Settings size={18} className="group-hover:rotate-45 transition-transform duration-500" />
+          <button 
+            onClick={() => setActiveTab('settings')}
+            className={cn(
+              "w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all group",
+              activeTab === 'settings' ? "bg-brand-500 text-white shadow-xl shadow-brand-200" : "text-zinc-400 hover:bg-zinc-50 hover:text-zinc-900"
+            )}
+          >
+            <Settings size={18} className={cn("transition-transform duration-500", activeTab === 'settings' ? "rotate-45" : "group-hover:rotate-45")} />
             <span className="text-sm font-bold">Settings</span>
           </button>
 
@@ -351,6 +458,8 @@ export default function App() {
               <input 
                 type="text" 
                 placeholder="Search intelligence, files, or behavioral patterns..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-white border border-zinc-200/60 rounded-2xl py-3.5 pl-12 pr-4 text-sm font-medium focus:ring-4 focus:ring-zinc-900/5 focus:border-zinc-300 transition-all outline-none shadow-sm"
               />
             </div>
@@ -364,10 +473,77 @@ export default function App() {
                 <p className="text-xs font-bold text-zinc-900 mt-1">12% CPU • 4.2GB RAM</p>
               </div>
             </div>
-            <button className="p-3 text-zinc-400 hover:bg-white hover:text-zinc-900 rounded-2xl transition-all relative glass-card border-none shadow-none hover:shadow-md">
-              <Bell size={20} />
-              <span className="absolute top-3 right-3 w-2 h-2 bg-zinc-900 rounded-full border-2 border-[#F5F5F7]" />
-            </button>
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-3 text-zinc-400 hover:bg-white hover:text-zinc-900 rounded-2xl transition-all relative glass-card border-none shadow-none hover:shadow-md"
+              >
+                <Bell size={20} />
+                <span className="absolute top-3 right-3 w-2 h-2 bg-zinc-900 rounded-full border-2 border-[#F5F5F7]" />
+              </button>
+              
+              <AnimatePresence>
+                {showNotifications && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute right-0 mt-4 w-80 glass-card rounded-3xl p-6 bg-white z-[100] shadow-2xl border-none"
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-sm font-bold uppercase tracking-widest">Notifications</h4>
+                      <button 
+                        onClick={() => setNotifications([])}
+                        className="text-[10px] font-bold text-brand-500 uppercase tracking-widest hover:text-brand-700 transition-colors"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+                    <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                      {notifications.length > 0 ? (
+                        notifications.map(n => (
+                          <div 
+                            key={n.id} 
+                            onClick={() => {
+                              if (n.type === 'cleanup') setActiveTab('cleanup');
+                              if (n.type === 'scan') setActiveTab('analysis');
+                              if (n.type === 'security') setActiveTab('permissions');
+                              setNotifications(prev => prev.map(notif => notif.id === n.id ? { ...notif, read: true } : notif));
+                              setShowNotifications(false);
+                            }}
+                            className={cn(
+                              "flex items-start gap-4 p-3 rounded-2xl transition-colors cursor-pointer group relative",
+                              n.read ? "bg-transparent hover:bg-zinc-50" : "bg-brand-50/50 hover:bg-brand-50"
+                            )}
+                          >
+                            {!n.read && <div className="absolute top-3 right-3 w-1.5 h-1.5 bg-brand-500 rounded-full" />}
+                            <div className={cn(
+                              "w-8 h-8 rounded-xl flex items-center justify-center transition-all",
+                              n.read ? "bg-zinc-100 text-zinc-400" : "bg-brand-500 text-white"
+                            )}>
+                              {n.icon}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className={cn("text-xs truncate", n.read ? "text-zinc-500 font-medium" : "text-zinc-900 font-bold")}>
+                                {n.title}
+                              </p>
+                              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5">{n.time}</p>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="py-8 text-center space-y-2">
+                          <div className="w-12 h-12 bg-zinc-50 rounded-full flex items-center justify-center mx-auto text-zinc-300">
+                            <Bell size={20} />
+                          </div>
+                          <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">No new notifications</p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
             <div className="h-10 w-px bg-zinc-200" />
             <button 
               onClick={handleLogout}
