@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 const db = new Database('datadetox.db');
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
+db.pragma('foreign_keys = ON');
 
 // Initialize Schema
 db.exec(`
@@ -24,7 +25,7 @@ db.exec(`
     email_access INTEGER DEFAULT 1,
     documents_access INTEGER DEFAULT 1,
     files_access INTEGER DEFAULT 1,
-    FOREIGN KEY(user_id) REFERENCES users(id)
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS backups (
@@ -34,7 +35,7 @@ db.exec(`
     size INTEGER,
     status TEXT DEFAULT 'completed', -- completed, in_progress, failed
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(user_id) REFERENCES users(id)
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS user_preferences (
@@ -44,7 +45,9 @@ db.exec(`
     auto_scan_enabled INTEGER DEFAULT 0,
     notification_threshold INTEGER DEFAULT 80,
     cleanup_goal INTEGER,
-    FOREIGN KEY(user_id) REFERENCES users(id)
+    wellness_score INTEGER DEFAULT 50,
+    storage_offset INTEGER DEFAULT 0,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS files_metadata (
@@ -57,7 +60,7 @@ db.exec(`
     file_type TEXT,
     last_accessed DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(user_id) REFERENCES users(id)
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS cleanup_recommendations (
@@ -68,7 +71,7 @@ db.exec(`
     reason TEXT,
     status TEXT DEFAULT 'pending', -- pending, approved, rejected
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(file_id) REFERENCES files_metadata(id)
+    FOREIGN KEY(file_id) REFERENCES files_metadata(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS user_decisions (
@@ -77,8 +80,8 @@ db.exec(`
     recommendation_id INTEGER,
     decision TEXT, -- approve, reject, override
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(user_id) REFERENCES users(id),
-    FOREIGN KEY(recommendation_id) REFERENCES cleanup_recommendations(id)
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(recommendation_id) REFERENCES cleanup_recommendations(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS storage_trends (
@@ -86,7 +89,7 @@ db.exec(`
     user_id INTEGER,
     total_used_size INTEGER,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(user_id) REFERENCES users(id)
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS audit_logs (
@@ -95,7 +98,7 @@ db.exec(`
     action TEXT,
     details TEXT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(user_id) REFERENCES users(id)
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS user_connections (
@@ -106,7 +109,7 @@ db.exec(`
     last_sync DATETIME,
     storage_used TEXT,
     UNIQUE(user_id, provider_id),
-    FOREIGN KEY(user_id) REFERENCES users(id)
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 `);
 
@@ -128,6 +131,12 @@ const prefTableInfo = db.prepare("PRAGMA table_info(user_preferences)").all() as
 const prefColumns = prefTableInfo.map(info => info.name);
 if (!prefColumns.includes('cleanup_goal')) {
   db.exec("ALTER TABLE user_preferences ADD COLUMN cleanup_goal INTEGER");
+}
+if (!prefColumns.includes('wellness_score')) {
+  db.exec("ALTER TABLE user_preferences ADD COLUMN wellness_score INTEGER DEFAULT 50");
+}
+if (!prefColumns.includes('storage_offset')) {
+  db.exec("ALTER TABLE user_preferences ADD COLUMN storage_offset INTEGER DEFAULT 0");
 }
 
 // Ensure demo user has an email if it exists without one

@@ -6,6 +6,11 @@ import {
   XCircle, 
   FileText, 
   Video, 
+  Image,
+  Folder,
+  AppWindow,
+  Mail,
+  File,
   Archive, 
   AlertTriangle,
   ChevronRight,
@@ -135,12 +140,18 @@ export const CleanupView: React.FC<CleanupViewProps> = ({ items, onCleanup, onTa
                     {selectedItems.includes(item.id) && <CheckCircle2 size={14} />}
                   </div>
 
-                  <div className={cn(
-                    "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-colors",
-                    item.category === 'media' ? "bg-zinc-50 text-zinc-900" : 
-                    item.category === 'work' ? "bg-zinc-50 text-zinc-900" : "bg-zinc-50 text-zinc-900"
-                  )}>
-                    {item.category === 'media' ? <Video size={20} /> : <FileText size={20} />}
+                  <div className="w-12 h-12 rounded-2xl bg-zinc-50 flex items-center justify-center shrink-0 transition-colors text-zinc-900">
+                    {(() => {
+                      switch (item.type) {
+                        case 'image': return <Image size={20} />;
+                        case 'video': return <Video size={20} />;
+                        case 'document': return <FileText size={20} />;
+                        case 'folder': return <Folder size={20} />;
+                        case 'app': return <AppWindow size={20} />;
+                        case 'email': return <Mail size={20} />;
+                        default: return <File size={20} />;
+                      }
+                    })()}
                   </div>
 
                   <div className="flex-1 min-w-0">

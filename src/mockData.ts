@@ -105,8 +105,8 @@ const generateForecast = () => {
 
 export const mockDashboardData: DashboardData = {
   totalStorage: 1024 * 1024 * 1024 * 400, // 400GB
-  usedStorage: 1024 * 1024 * 1024 * 320, // 320GB
-  wellnessScore: 68,
+  usedStorage: 1024 * 1024 * 1024 * 370, // 370GB
+  wellnessScore: 50,
   items: generateMockFiles(),
   metrics: [
     { label: 'Digital Focus', value: 72, trend: 'up', status: 'good' },

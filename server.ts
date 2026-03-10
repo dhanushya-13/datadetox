@@ -29,8 +29,8 @@ async function startServer() {
 
   // Seed Demo User
   const seedDemoUser = async () => {
-    const existing = db.prepare("SELECT COUNT(*) as count FROM users").get() as { count: number };
-    if (existing.count === 0) {
+    const demoUser = db.prepare("SELECT id FROM users WHERE username = ?").get("demo");
+    if (!demoUser) {
       console.log("Seeding demo user...");
       const hashedPassword = await bcrypt.hash("password123", 8);
       const result = db.prepare("INSERT INTO users (username, password, is_verified) VALUES (?, ?, ?)").run("demo", hashedPassword, 1);
@@ -38,6 +38,8 @@ async function startServer() {
       db.prepare("INSERT INTO user_permissions (user_id) VALUES (?)").run(userId);
       db.prepare("INSERT INTO user_preferences (user_id) VALUES (?)").run(userId);
       console.log("Demo user 'demo' created with password 'password123'");
+    } else {
+      console.log("Demo user 'demo' already exists.");
     }
   };
   await seedDemoUser();
@@ -49,6 +51,25 @@ async function startServer() {
   });
 
   // --- API ROUTES ---
+  
+  // Helper to check if user exists
+  const getUserId = (userId: any): number | null => {
+    if (!userId) return null;
+    const id = typeof userId === 'string' && !isNaN(Number(userId)) ? Number(userId) : userId;
+    return typeof id === 'number' ? id : null;
+  };
+
+  const userExists = (userId: any) => {
+    const id = getUserId(userId);
+    if (id === null) return false;
+    try {
+      const user = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
+      return !!user;
+    } catch (e) {
+      console.error("userExists check failed:", e);
+      return false;
+    }
+  };
 
   // Auth
   app.post("/api/auth/register", async (req, res) => {
@@ -61,15 +82,29 @@ async function startServer() {
 
     const hashedPassword = await bcrypt.hash(password, 8);
 
-    try {
+    const registerTransaction = db.transaction((username, hashedPassword) => {
+      const existingUser = db.prepare("SELECT id FROM users WHERE username = ?").get(username);
+      if (existingUser) {
+        throw new Error("USER_EXISTS");
+      }
+
       const stmt = db.prepare("INSERT INTO users (username, password, is_verified) VALUES (?, ?, ?)");
-      const result = stmt.run(username.trim(), hashedPassword, 1);
+      const result = stmt.run(username, hashedPassword, 1);
       const userId = result.lastInsertRowid;
       
-      // Initialize permissions and preferences
       db.prepare("INSERT INTO user_permissions (user_id) VALUES (?)").run(userId);
-      db.prepare("INSERT INTO user_preferences (user_id) VALUES (?)").run(userId);
+      
+      const seed = username.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+      const initialScore = 40 + (seed % 40);
+      const initialOffset = (seed % 200) * 1024 * 1024 * 1024;
 
+      db.prepare("INSERT INTO user_preferences (user_id, wellness_score, storage_offset) VALUES (?, ?, ?)").run(userId, initialScore, initialOffset);
+      
+      return userId;
+    });
+
+    try {
+      const userId = registerTransaction(username.trim(), hashedPassword);
       console.log(`User registered successfully: ${username} (ID: ${userId})`);
       
       const token = jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: '24h' });
@@ -78,36 +113,44 @@ async function startServer() {
         user: { id: userId, username: username.trim() }
       });
     } catch (e: any) {
-      console.error("Registration Error:", e);
-      let errorMessage = "Username already exists";
-      if (e.message.includes("users.username")) {
-        errorMessage = "This username is already taken.";
+      if (e.message === "USER_EXISTS" || e.message.includes("UNIQUE constraint failed: users.username")) {
+        console.warn(`Registration attempt failed: Username '${username}' is already taken.`);
+        return res.status(400).json({ error: "This username is already taken." });
       }
-      res.status(400).json({ error: errorMessage });
+      
+      console.error("Registration Error:", e);
+      res.status(500).json({ error: "Internal server error during registration" });
     }
   });
 
   app.post("/api/auth/login", async (req, res) => {
     const { username, password } = req.body;
-    console.log(`Login attempt for: ${username}`);
+    const trimmedUsername = username?.trim();
+    console.log(`Login attempt for: ${trimmedUsername}`);
 
-    if (!username || !password) {
+    if (!trimmedUsername || !password) {
       return res.status(400).json({ error: "Username and password required" });
     }
 
-    const user: any = db.prepare("SELECT * FROM users WHERE username = ?").get(username.trim());
-    
-    if (user) {
-      const isMatch = await bcrypt.compare(password, user.password);
-      if (isMatch) {
-        const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '24h' });
-        console.log(`User logged in successfully: ${username}`);
-        return res.json({ token, user: { id: user.id, username: user.username } });
+    try {
+      const user: any = db.prepare("SELECT * FROM users WHERE username = ?").get(trimmedUsername);
+      
+      if (user) {
+        console.log(`User found: ${trimmedUsername}. Comparing passwords...`);
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (isMatch) {
+          const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '24h' });
+          console.log(`User logged in successfully: ${trimmedUsername}`);
+          return res.json({ token, user: { id: user.id, username: user.username } });
+        } else {
+          console.warn(`Invalid password for user: ${trimmedUsername}`);
+        }
       } else {
-        console.log(`Invalid password for user: ${username}`);
+        console.warn(`User not found: ${trimmedUsername}`);
       }
-    } else {
-      console.log(`User not found: ${username}`);
+    } catch (error) {
+      console.error("Login Database Error:", error);
+      return res.status(500).json({ error: "Internal server error during login" });
     }
     
     res.status(401).json({ error: "Invalid credentials" });
@@ -116,6 +159,11 @@ async function startServer() {
   // File Metadata Upload (Simulating Agent)
   app.post("/api/metadata/upload", (req, res) => {
     const { userId, files } = req.body;
+    
+    if (!userExists(userId)) {
+      return res.status(401).json({ error: "Invalid user session" });
+    }
+
     const insert = db.prepare(`
       INSERT INTO files_metadata (user_id, name, path, size, hash, file_type, last_accessed)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -141,39 +189,59 @@ async function startServer() {
 
   // Dashboard Data
   app.get("/api/dashboard/:userId", (req, res) => {
-    const userId = req.params.userId;
-    const files = db.prepare("SELECT * FROM files_metadata WHERE user_id = ?").all(userId);
-    const trends = db.prepare("SELECT * FROM storage_trends WHERE user_id = ? ORDER BY timestamp DESC LIMIT 30").all(userId);
+    const id = getUserId(req.params.userId);
+    if (!id) return res.status(400).json({ error: "Invalid User ID" });
+
+    const files = db.prepare("SELECT * FROM files_metadata WHERE user_id = ?").all(id);
+    const trends = db.prepare("SELECT * FROM storage_trends WHERE user_id = ? ORDER BY timestamp DESC LIMIT 30").all(id);
     const recommendations = db.prepare(`
       SELECT r.*, f.name, f.size, f.path 
       FROM cleanup_recommendations r
       JOIN files_metadata f ON r.file_id = f.id
       WHERE f.user_id = ? AND r.status = 'pending'
-    `).all(userId);
-    const preferences = db.prepare("SELECT * FROM user_preferences WHERE user_id = ?").get(userId) as any;
+    `).all(id);
+    const preferences = db.prepare("SELECT * FROM user_preferences WHERE user_id = ?").get(id) as any;
+
+    // Generate deterministic forecast
+    const seed = id || 1;
+    const forecast = Array.from({ length: 12 }).map((_, i) => {
+      const baseSize = (300 + (seed % 150)) * 1024 * 1024 * 1024; // 300-450GB base
+      const growth = i * (5 + (seed % 10)) * 1024 * 1024 * 1024; // 5-15GB growth per month
+      return {
+        date: new Date(Date.now() + i * 30 * 24 * 60 * 60 * 1000).toISOString(),
+        predictedSize: baseSize + growth + (Math.sin(seed + i) * 10 * 1024 * 1024 * 1024)
+      };
+    });
 
     res.json({ 
       files, 
       trends, 
       recommendations, 
-      cleanupGoal: preferences?.cleanup_goal || null 
+      cleanupGoal: preferences?.cleanup_goal || null,
+      wellnessScore: preferences?.wellness_score || 50,
+      storageOffset: preferences?.storage_offset || 0,
+      forecast
     });
   });
 
   // Deep Scan Simulation
   app.post("/api/scan", async (req, res) => {
-    const { userId } = req.body;
-    if (!userId) return res.status(400).json({ error: "User ID required" });
+    const id = getUserId(req.body.userId);
+    if (!id) return res.status(400).json({ error: "User ID required" });
 
-    console.log(`Starting Real-time Deep Scan for user ${userId}`);
+    if (!userExists(id)) {
+      return res.status(401).json({ error: "Invalid user session" });
+    }
+
+    console.log(`Starting Real-time Deep Scan for user ${id}`);
 
     // Fetch user permissions
-    const permissions = db.prepare("SELECT * FROM user_permissions WHERE user_id = ?").get(userId) as any;
+    const permissions = db.prepare("SELECT * FROM user_permissions WHERE user_id = ?").get(id) as any;
 
     // Send initial start message
     wss.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: "SCAN_STARTED", userId }));
+        client.send(JSON.stringify({ type: "SCAN_STARTED", userId: id }));
       }
     });
 
@@ -200,18 +268,50 @@ async function startServer() {
         const type = allowedTypes[Math.floor(Math.random() * allowedTypes.length)];
         let extension = 'dat';
         let path = '/Users/detox/System/Scan';
+        let baseName = 'file';
         
+        const imageNames = ['IMG_4920', 'Vacation_Shot', 'Profile_Pic', 'Screenshot_2024', 'Family_Dinner', 'Sunset_Beach'];
+        const videoNames = ['Wedding_Video', 'Project_Demo', 'Movie_Draft', 'Vlog_01', 'Tutorial_Final', 'Concert_Clip'];
+        const docNames = ['Tax_Return_2023', 'Resume_Updated', 'Contract_Signed', 'Meeting_Notes', 'Project_Proposal', 'Invoice_Jan'];
+        const emailNames = ['Newsletter_Sub', 'Order_Confirmation', 'Bank_Statement', 'Flight_Ticket', 'Welcome_Mail'];
+        const appNames = ['Adobe_Photoshop', 'VS_Code', 'Slack', 'Spotify', 'Zoom', 'Chrome_Cache'];
+        const archiveNames = ['Backup_2023', 'Old_Photos_Archive', 'Project_Files_v1', 'System_Dump', 'Log_Files'];
+
         switch(type) {
-          case 'image': extension = 'jpg'; path = '/Users/detox/Photos/2024'; break;
-          case 'video': extension = 'mp4'; path = '/Users/detox/Videos/Archive'; break;
-          case 'document': extension = 'pdf'; path = '/Users/detox/Documents/Work'; break;
-          case 'email': extension = 'eml'; path = '/Users/detox/Mail/Inbox'; break;
-          case 'app': extension = 'app'; path = '/Applications'; break;
-          case 'archive': extension = 'zip'; path = '/Users/detox/Backups'; break;
+          case 'image': 
+            extension = 'jpg'; 
+            path = '/Users/detox/Photos/2024'; 
+            baseName = imageNames[Math.floor(Math.random() * imageNames.length)];
+            break;
+          case 'video': 
+            extension = 'mp4'; 
+            path = '/Users/detox/Videos/Archive'; 
+            baseName = videoNames[Math.floor(Math.random() * videoNames.length)];
+            break;
+          case 'document': 
+            extension = 'pdf'; 
+            path = '/Users/detox/Documents/Work'; 
+            baseName = docNames[Math.floor(Math.random() * docNames.length)];
+            break;
+          case 'email': 
+            extension = 'eml'; 
+            path = '/Users/detox/Mail/Inbox'; 
+            baseName = emailNames[Math.floor(Math.random() * emailNames.length)];
+            break;
+          case 'app': 
+            extension = 'app'; 
+            path = '/Applications'; 
+            baseName = appNames[Math.floor(Math.random() * appNames.length)];
+            break;
+          case 'archive': 
+            extension = 'zip'; 
+            path = '/Users/detox/Backups'; 
+            baseName = archiveNames[Math.floor(Math.random() * archiveNames.length)];
+            break;
         }
 
         return {
-          name: `neural_data_${i}_${j}_${Math.floor(Math.random() * 1000)}.${extension}`,
+          name: `${baseName}_${Math.floor(Math.random() * 1000)}.${extension}`,
           path: path,
           size: Math.floor(Math.random() * (type === 'video' ? 500 : 50) * 1024 * 1024),
           hash: Math.random().toString(36).substring(7),
@@ -232,7 +332,7 @@ async function startServer() {
 
       const transaction = db.transaction(() => {
         for (const file of newFiles) {
-          const result = insertFile.run(userId, file.name, file.path, file.size, file.hash, file.type, file.lastAccessed);
+          const result = insertFile.run(id, file.name, file.path, file.size, file.hash, file.type, file.lastAccessed);
           const fileId = result.lastInsertRowid;
 
           if (Math.random() > 0.5) {
@@ -264,8 +364,8 @@ async function startServer() {
     }
 
     // Update storage trends at the end
-    const totalUsed = db.prepare("SELECT SUM(size) as total FROM files_metadata WHERE user_id = ?").get(userId) as any;
-    db.prepare("INSERT INTO storage_trends (user_id, total_used_size) VALUES (?, ?)").run(userId, totalUsed.total || 0);
+    const totalUsed = db.prepare("SELECT SUM(size) as total FROM files_metadata WHERE user_id = ?").get(id) as any;
+    db.prepare("INSERT INTO storage_trends (user_id, total_used_size) VALUES (?, ?)").run(id, totalUsed.total || 0);
 
     // Final completion message
     wss.clients.forEach(client => {
@@ -279,9 +379,14 @@ async function startServer() {
 
   // Cleanup Execution
   app.post("/api/cleanup", (req, res) => {
-    const { userId, itemIds } = req.body;
-    if (!userId || !itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
+    const id = getUserId(req.body.userId);
+    const { itemIds } = req.body;
+    if (!id || !itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
       return res.status(400).json({ error: "User ID and non-empty item IDs array required" });
+    }
+
+    if (!userExists(id)) {
+      return res.status(401).json({ error: "Invalid user session" });
     }
 
     const placeholders = itemIds.map(() => '?').join(',');
@@ -294,7 +399,7 @@ async function startServer() {
         WHERE r.id IN (${placeholders})
       `).all(...itemIds) as any[];
 
-      const fileIds = items.map(i => i.file_id);
+      const fileIds = [...new Set(items.map(i => i.file_id))];
       const totalSize = items.reduce((acc, i) => acc + i.size, 0);
 
       // Create a backup record for these files
@@ -302,24 +407,38 @@ async function startServer() {
         db.prepare(`
           INSERT INTO backups (user_id, name, size, status)
           VALUES (?, ?, ?, ?)
-        `).run(userId, `Cleanup_Archive_${new Date().toISOString().split('T')[0]}_${Math.floor(Math.random() * 1000)}`, totalSize, 'completed');
+        `).run(id, `Cleanup_Archive_${new Date().toISOString().split('T')[0]}_${Math.floor(Math.random() * 1000)}`, totalSize, 'completed');
       }
 
-      // Delete user decisions first (children of recommendations)
-      db.prepare(`
-        DELETE FROM user_decisions 
-        WHERE recommendation_id IN (${placeholders})
-      `).run(...itemIds);
-
-      // Delete recommendations first (the children of files)
-      db.prepare(`
-        DELETE FROM cleanup_recommendations 
-        WHERE id IN (${placeholders})
-      `).run(...itemIds);
-      
-      // Then delete the actual files from metadata (the parents)
       if (fileIds.length > 0) {
         const filePlaceholders = fileIds.map(() => '?').join(',');
+        
+        // Find ALL recommendations for these files, not just the ones selected
+        // This is necessary to avoid FK violations when deleting the files
+        const allRecs = db.prepare(`
+          SELECT id FROM cleanup_recommendations 
+          WHERE file_id IN (${filePlaceholders})
+        `).all(...fileIds) as any[];
+        
+        const allRecIds = allRecs.map(r => r.id);
+        
+        if (allRecIds.length > 0) {
+          const allRecPlaceholders = allRecIds.map(() => '?').join(',');
+          
+          // Delete user decisions first (children of recommendations)
+          db.prepare(`
+            DELETE FROM user_decisions 
+            WHERE recommendation_id IN (${allRecPlaceholders})
+          `).run(...allRecIds);
+
+          // Delete ALL recommendations for these files
+          db.prepare(`
+            DELETE FROM cleanup_recommendations 
+            WHERE id IN (${allRecPlaceholders})
+          `).run(...allRecIds);
+        }
+        
+        // Then delete the actual files from metadata (the parents)
         db.prepare(`
           DELETE FROM files_metadata 
           WHERE id IN (${filePlaceholders})
@@ -327,11 +446,11 @@ async function startServer() {
       }
 
       // Record trend after cleanup
-      const totalUsed = db.prepare("SELECT SUM(size) as total FROM files_metadata WHERE user_id = ?").get(userId) as any;
-      db.prepare("INSERT INTO storage_trends (user_id, total_used_size) VALUES (?, ?)").run(userId, totalUsed.total || 0);
+      const totalUsed = db.prepare("SELECT SUM(size) as total FROM files_metadata WHERE user_id = ?").get(id) as any;
+      db.prepare("INSERT INTO storage_trends (user_id, total_used_size) VALUES (?, ?)").run(id, totalUsed.total || 0);
 
       db.prepare("INSERT INTO audit_logs (user_id, action, details) VALUES (?, ?, ?)")
-        .run(userId, "CLEANUP_EXECUTED", `Deleted ${itemIds.length} items`);
+        .run(id, "CLEANUP_EXECUTED", `Deleted ${itemIds.length} items`);
       res.json({ success: true, count: itemIds.length });
     } catch (e: any) {
       console.error("Cleanup Error:", e);
@@ -352,10 +471,16 @@ async function startServer() {
     // If no trends, provide some mock historical data for visualization
     if (trends.length < 2) {
       const now = Date.now();
-      const mockTrends = Array.from({ length: 7 }).map((_, i) => ({
-        size: Math.floor(Math.random() * 50 * 1024 * 1024 * 1024) + (20 * 1024 * 1024 * 1024),
-        timestamp: new Date(now - (7 - i) * 24 * 60 * 60 * 1000).toISOString()
-      }));
+      const seed = parseInt(userId) || 1;
+      const mockTrends = Array.from({ length: 7 }).map((_, i) => {
+        // Deterministic but unique per user
+        const baseSize = (20 + (seed % 30)) * 1024 * 1024 * 1024; // 20-50GB base
+        const variance = Math.sin(seed + i) * 5 * 1024 * 1024 * 1024; // +/- 5GB
+        return {
+          size: Math.floor(baseSize + variance + (i * 1024 * 1024 * 1024)), // Growing trend
+          timestamp: new Date(now - (7 - i) * 24 * 60 * 60 * 1000).toISOString()
+        };
+      });
       return res.json(mockTrends);
     }
 
@@ -367,33 +492,50 @@ async function startServer() {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: "User ID required" });
 
-    const files = db.prepare("SELECT * FROM files_metadata WHERE user_id = ?").all(userId) as any[];
-    const recommendations = db.prepare(`
-      SELECT r.*, f.name, f.size 
-      FROM cleanup_recommendations r
-      JOIN files_metadata f ON r.file_id = f.id
-      WHERE f.user_id = ? AND r.status = 'pending'
-    `).all(userId) as any[];
+    if (!userExists(userId)) {
+      return res.status(401).json({ error: "Invalid user session" });
+    }
 
-    const stats = {
-      totalFiles: files.length,
-      totalSize: files.reduce((acc, f) => acc + f.size, 0),
-      flaggedCount: recommendations.length,
-      flaggedSize: recommendations.reduce((acc, r) => acc + r.size, 0),
-    };
+    try {
+      const id = typeof userId === 'string' && !isNaN(Number(userId)) ? Number(userId) : userId;
+      const files = db.prepare("SELECT * FROM files_metadata WHERE user_id = ?").all(id) as any[];
+      const recommendations = db.prepare(`
+        SELECT r.*, f.name, f.size 
+        FROM cleanup_recommendations r
+        JOIN files_metadata f ON r.file_id = f.id
+        WHERE f.user_id = ? AND r.status = 'pending'
+      `).all(id) as any[];
 
-    res.json(stats);
+      const stats = {
+        totalFiles: files.length,
+        totalSize: files.reduce((acc, f) => acc + f.size, 0),
+        flaggedCount: recommendations.length,
+        flaggedSize: recommendations.reduce((acc, r) => acc + r.size, 0),
+      };
+
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Analyze Stats Error:", error);
+      res.status(500).json({ error: error.message });
+    }
   });
 
   // Connections
   app.get("/api/connections/:userId", (req, res) => {
-    const connections = db.prepare("SELECT * FROM user_connections WHERE user_id = ?").all(req.params.userId);
+    const id = getUserId(req.params.userId);
+    if (!id) return res.status(400).json({ error: "Invalid User ID" });
+    const connections = db.prepare("SELECT * FROM user_connections WHERE user_id = ?").all(id);
     res.json(connections);
   });
 
   app.post("/api/connections/connect", (req, res) => {
-    const { userId, providerId } = req.body;
-    if (!userId || !providerId) return res.status(400).json({ error: "User ID and Provider ID required" });
+    const id = getUserId(req.body.userId);
+    const { providerId } = req.body;
+    if (!id || !providerId) return res.status(400).json({ error: "User ID and Provider ID required" });
+
+    if (!userExists(id)) {
+      return res.status(401).json({ error: "Invalid user session" });
+    }
 
     db.prepare(`
       INSERT INTO user_connections (user_id, provider_id, connected, last_sync, storage_used)
@@ -402,72 +544,48 @@ async function startServer() {
         connected = 1,
         last_sync = CURRENT_TIMESTAMP,
         storage_used = EXCLUDED.storage_used
-    `).run(userId, providerId, "14.2 GB");
+    `).run(id, providerId, "14.2 GB");
 
     res.json({ success: true });
   });
 
   app.post("/api/connections/disconnect", (req, res) => {
-    const { userId, providerId } = req.body;
-    if (!userId || !providerId) return res.status(400).json({ error: "User ID and Provider ID required" });
+    const id = getUserId(req.body.userId);
+    const { providerId } = req.body;
+    if (!id || !providerId) return res.status(400).json({ error: "User ID and Provider ID required" });
 
-    db.prepare("UPDATE user_connections SET connected = 0 WHERE user_id = ? AND provider_id = ?").run(userId, providerId);
+    if (!userExists(id)) {
+      return res.status(401).json({ error: "Invalid user session" });
+    }
+
+    db.prepare("UPDATE user_connections SET connected = 0 WHERE user_id = ? AND provider_id = ?").run(id, providerId);
     res.json({ success: true });
   });
 
   // Permissions
-  app.post("/api/permissions", (req, res) => {
-    const { userId, photos_access, videos_access, email_access, documents_access, files_access } = req.body;
-    if (!userId) return res.status(400).json({ error: "User ID required" });
-
-    db.prepare(`
-      INSERT INTO user_permissions (user_id, photos_access, videos_access, email_access, documents_access, files_access)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET
-        photos_access = EXCLUDED.photos_access,
-        videos_access = EXCLUDED.videos_access,
-        email_access = EXCLUDED.email_access,
-        documents_access = EXCLUDED.documents_access,
-        files_access = EXCLUDED.files_access
-    `).run(userId, photos_access, videos_access, email_access, documents_access, files_access);
-
-    res.json({ success: true });
-  });
-
-  // Theme Preference
-  app.get("/api/preferences/:userId", (req, res) => {
-    const prefs = db.prepare("SELECT * FROM user_preferences WHERE user_id = ?").get(req.params.userId);
-    res.json(prefs || { theme: 'light' });
-  });
-
-  app.post("/api/preferences", (req, res) => {
-    const { userId, theme, cleanupGoal } = req.body;
-    
-    if (theme !== undefined) {
-      db.prepare(`
-        INSERT INTO user_preferences (user_id, theme)
-        VALUES (?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET theme = EXCLUDED.theme
-      `).run(userId, theme);
-    }
-    
-    if (cleanupGoal !== undefined) {
-      db.prepare(`
-        INSERT INTO user_preferences (user_id, cleanup_goal)
-        VALUES (?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET cleanup_goal = EXCLUDED.cleanup_goal
-      `).run(userId, cleanupGoal);
-    }
-    
-    res.json({ success: true });
+  app.get("/api/permissions/:userId", (req, res) => {
+    const id = getUserId(req.params.userId);
+    if (!id) return res.status(400).json({ error: "Invalid User ID" });
+    const permissions = db.prepare("SELECT * FROM user_permissions WHERE user_id = ?").get(id);
+    res.json(permissions || { 
+      photos_access: 1, 
+      videos_access: 1, 
+      email_access: 1, 
+      documents_access: 1, 
+      files_access: 1 
+    });
   });
 
   // Google Drive Sync (Simulated)
   app.post("/api/drive/sync", async (req, res) => {
-    const { userId } = req.body;
-    if (!userId) return res.status(400).json({ error: "User ID required" });
+    const id = getUserId(req.body.userId);
+    if (!id) return res.status(400).json({ error: "User ID required" });
 
-    console.log(`Syncing Google Drive for user ${userId}`);
+    if (!userExists(id)) {
+      return res.status(401).json({ error: "Invalid user session" });
+    }
+
+    console.log(`Syncing Google Drive for user ${id}`);
     
     // Simulate fetching files
     const mockFiles = [
@@ -475,6 +593,8 @@ async function startServer() {
       { name: 'Work_Project_Final_v2.mp4', type: 'video', size: 1024 * 1024 * 890 },
       { name: 'Tax_Returns_2022.pdf', type: 'document', size: 1024 * 1024 * 2 },
       { name: 'Old_Backup_iPhone.tar', type: 'app', size: 1024 * 1024 * 1024 * 5 },
+      { name: 'Client_Meeting_01.mp4', type: 'video', size: 1024 * 1024 * 1200 },
+      { name: 'Design_Assets_v4.zip', type: 'archive', size: 1024 * 1024 * 3200 },
     ];
 
     const insert = db.prepare(`
@@ -484,23 +604,27 @@ async function startServer() {
 
     const transaction = db.transaction((files) => {
       for (const file of files) {
-        insert.run(userId, file.name, "Google Drive", file.size, "drive-" + Math.random(), file.type, new Date().toISOString());
+        insert.run(id, file.name, "Google Drive", file.size, "drive-" + Math.random(), file.type, new Date().toISOString());
       }
     });
     transaction(mockFiles);
 
-    db.prepare("UPDATE user_connections SET last_sync = CURRENT_TIMESTAMP WHERE user_id = ? AND provider_id = 'google_drive'").run(userId);
+    db.prepare("UPDATE user_connections SET last_sync = CURRENT_TIMESTAMP WHERE user_id = ? AND provider_id = 'google_drive'").run(id);
 
     res.json({ success: true, count: mockFiles.length });
   });
 
   // Manual File Upload
   app.post("/api/upload", upload.array("files"), async (req, res) => {
-    const { userId } = req.body;
+    const id = getUserId(req.body.userId);
     const files = req.files as Express.Multer.File[];
 
-    if (!userId || !files || files.length === 0) {
+    if (!id || !files || files.length === 0) {
       return res.status(400).json({ error: "User ID and files required" });
+    }
+
+    if (!userExists(id)) {
+      return res.status(401).json({ error: "Invalid user session" });
     }
 
     const insert = db.prepare(`
@@ -522,7 +646,7 @@ async function startServer() {
           else if (file.mimetype.startsWith('video/')) fileType = 'video';
           else if (file.mimetype.startsWith('audio/')) fileType = 'audio';
 
-          const result = insert.run(userId, file.originalname, "Manual Upload", file.size, "manual-" + Date.now() + "-" + Math.random(), fileType, new Date().toISOString());
+          const result = insert.run(id, file.originalname, "Manual Upload", file.size, "manual-" + Date.now() + "-" + Math.random(), fileType, new Date().toISOString());
           const fileId = result.lastInsertRowid;
 
           // Basic heuristic analysis
@@ -545,21 +669,35 @@ async function startServer() {
 
           if (flagged) {
             insertRecommendation.run(fileId, confidence, risk, reason);
-            results.push({ name: file.originalname, flagged, reason, risk });
+            results.push({ name: file.originalname, flagged, reason, risk, size: file.size, type: fileType });
           } else {
-            results.push({ name: file.originalname, flagged: false });
+            results.push({ name: file.originalname, flagged: false, size: file.size, type: fileType });
           }
         }
       });
       transaction(files);
 
+      // Prepare data for frontend AI analysis
+      const fileSummary = results.map(r => `- ${r.name} (${(r.size / 1024 / 1024).toFixed(2)} MB, Type: ${r.type})${r.flagged ? ' [FLAGGED: ' + r.reason + ']' : ''}`).join('\n');
+
+      // Prepare visualization data
+      const typeDistribution = results.reduce((acc: any, r: any) => {
+        acc[r.type] = (acc[r.type] || 0) + 1;
+        return acc;
+      }, {});
+
       db.prepare("INSERT INTO audit_logs (user_id, action, details) VALUES (?, ?, ?)")
-        .run(userId, "FILES_UPLOADED", `Uploaded ${files.length} files manually`);
+        .run(id, "FILES_UPLOADED", JSON.stringify({ count: files.length }));
 
       res.json({ 
         success: true, 
         count: files.length, 
-        analysis: results
+        analysis: results,
+        fileSummary, // Send summary to frontend for AI analysis
+        visualization: {
+          typeDistribution: Object.entries(typeDistribution).map(([name, value]) => ({ name, value })),
+          totalSize: results.reduce((acc, r) => acc + r.size, 0)
+        }
       });
     } catch (e: any) {
       console.error("Upload Error:", e);
@@ -567,16 +705,27 @@ async function startServer() {
     }
   });
 
-  // Google Drive OAuth (Simulated)
+  // Google Drive OAuth (Simulated/Mock fallback)
   app.get("/api/auth/google/url", (req, res) => {
     const { userId } = req.query;
     
-    // Use APP_URL from env if available, otherwise construct from request
     const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
     const redirectUri = `${baseUrl}/api/auth/google/callback`;
 
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+
+    // If no client ID is configured, use a mock flow
+    if (!clientId || clientId === "mock_client_id") {
+      const mockParams = new URLSearchParams({
+        redirect_uri: redirectUri,
+        state: String(userId || ""),
+        provider: 'google_drive'
+      });
+      return res.json({ url: `${baseUrl}/api/auth/google/mock-login?${mockParams.toString()}` });
+    }
+
     const params = new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID || "mock_client_id",
+      client_id: clientId,
       redirect_uri: redirectUri,
       response_type: 'code',
       scope: 'https://www.googleapis.com/auth/drive.metadata.readonly',
@@ -587,12 +736,197 @@ async function startServer() {
     res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` });
   });
 
+  // Google Login OAuth (Simulated/Mock fallback)
+  app.get("/api/auth/google/login/url", (req, res) => {
+    const { login_hint } = req.query;
+    const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    const redirectUri = `${baseUrl}/api/auth/google/login/callback`;
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    
+    // If no client ID is configured, use a mock flow to avoid 401 errors
+    if (!clientId || clientId === "mock_client_id") {
+      const mockParams = new URLSearchParams({
+        redirect_uri: redirectUri,
+        login_hint: String(login_hint || ""),
+      });
+      return res.json({ url: `${baseUrl}/api/auth/google/mock-login?${mockParams.toString()}` });
+    }
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'openid email profile',
+      access_type: 'offline',
+      prompt: 'select_account',
+    });
+
+    if (login_hint) {
+      params.append('login_hint', String(login_hint));
+    }
+
+    res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` });
+  });
+
+  // Mock Google Login Page for demo purposes
+  app.get("/api/auth/google/mock-login", (req, res) => {
+    const { redirect_uri, login_hint, provider, state } = req.query;
+    const isDrive = provider === 'google_drive';
+    
+    res.send(`
+      <html>
+        <head>
+          <title>Mock Google Sign-In</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+          <style>
+            body { font-family: 'Inter', sans-serif; }
+          </style>
+        </head>
+        <body class="bg-gray-50 flex items-center justify-center min-h-screen p-4">
+          <div class="max-w-md w-full bg-white rounded-xl shadow-lg p-8 border border-gray-100">
+            <div class="flex flex-col items-center mb-8">
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/smartlock/google.svg" class="w-12 h-12 mb-4" />
+              <h1 class="text-2xl font-semibold text-gray-900">${isDrive ? 'Connect to Google Drive' : 'Sign in with Google'}</h1>
+              <p class="text-gray-500 text-sm mt-2">Demo Mode: No real credentials required</p>
+              ${isDrive ? '<p class="text-blue-600 text-[10px] font-bold uppercase tracking-widest mt-2">DataDetox wants to access your Drive metadata</p>' : ''}
+            </div>
+            
+            <div class="space-y-4">
+              <div class="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors" onclick="login('demo@datadetox.ai', 'Demo User')">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 bg-zinc-900 rounded-full flex items-center justify-center text-white font-bold">D</div>
+                  <div>
+                    <p class="text-sm font-medium text-gray-900">Demo User</p>
+                    <p class="text-xs text-gray-500">demo@datadetox.ai</p>
+                  </div>
+                </div>
+              </div>
+              
+              ${login_hint && login_hint !== "null" ? `
+              <div class="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors" onclick="login('${login_hint}', 'Previous User')">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold">${String(login_hint)[0].toUpperCase()}</div>
+                  <div>
+                    <p class="text-sm font-medium text-gray-900">Last Used Account</p>
+                    <p class="text-xs text-gray-500">${login_hint}</p>
+                  </div>
+                </div>
+              </div>
+              ` : ''}
+              
+              <div class="pt-4 border-t border-gray-100">
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Or enter any email to simulate actual account</label>
+                <div class="flex gap-2">
+                  <input type="email" id="customEmail" placeholder="you@example.com" class="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500" />
+                  <button onclick="login(document.getElementById('customEmail').value || 'newuser@example.com', 'New User')" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                    Sign In
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <div class="mt-8 pt-6 border-t border-gray-100 text-[11px] text-gray-400 text-center">
+              This is a simulated Google login for the DataDetox demo environment. 
+              Real Google OAuth requires CLIENT_ID and CLIENT_SECRET environment variables.
+            </div>
+          </div>
+          
+          <script>
+            function login(email, name) {
+              if (!email) return alert('Please enter an email');
+              const url = new URL('${redirect_uri}');
+              url.searchParams.set('code', 'mock_code_' + Math.random().toString(36).substring(7));
+              url.searchParams.set('mock_email', email);
+              url.searchParams.set('mock_name', name);
+              if ('${state || ""}') {
+                url.searchParams.set('state', '${state || ""}');
+              }
+              window.location.href = url.toString();
+            }
+          </script>
+        </body>
+      </html>
+    `);
+  });
+
+  app.get("/api/auth/google/login/callback", async (req, res) => {
+    const { code, mock_email, mock_name } = req.query;
+    
+    // Use mock data if provided (from our mock login page)
+    const email = (mock_email as string) || "user@example.com";
+    const name = (mock_name as string) || "Google User";
+
+    // Find or create user
+    let user: any = db.prepare("SELECT * FROM users WHERE username = ?").get(email);
+    
+    if (!user) {
+      const hashedPassword = await bcrypt.hash(Math.random().toString(36), 8);
+      
+      const googleLoginTransaction = db.transaction((email, hashedPassword) => {
+        const result = db.prepare("INSERT INTO users (username, password, is_verified) VALUES (?, ?, ?)")
+          .run(email, hashedPassword, 1);
+        const userId = result.lastInsertRowid;
+        db.prepare("INSERT INTO user_permissions (user_id) VALUES (?)").run(userId);
+        
+        // Generate deterministic but unique stats based on email
+        const seed = email.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+        const initialScore = 30 + (seed % 50); // 30-80
+        const initialOffset = (seed % 300) * 1024 * 1024 * 1024; // 0-300GB
+        
+        db.prepare("INSERT INTO user_preferences (user_id, wellness_score, storage_offset) VALUES (?, ?, ?)").run(userId, initialScore, initialOffset);
+        return { id: userId, username: email };
+      });
+
+      try {
+        user = googleLoginTransaction(email, hashedPassword);
+      } catch (e: any) {
+        console.error("Google Login User Creation Error:", e);
+        // Fallback: try to fetch user again in case of race condition
+        user = db.prepare("SELECT * FROM users WHERE username = ?").get(email);
+        if (!user) {
+          return res.status(500).send("Failed to create user account");
+        }
+      }
+    }
+
+    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '24h' });
+
+    res.send(`
+      <html>
+        <body>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({ 
+                type: 'OAUTH_LOGIN_SUCCESS', 
+                token: '${token}',
+                user: ${JSON.stringify({ id: user.id, username: user.username })}
+              }, '*');
+              window.close();
+            } else {
+              window.location.href = '/';
+            }
+          </script>
+          <p>Authentication successful. This window should close automatically.</p>
+        </body>
+      </html>
+    `);
+  });
+
   app.get("/api/auth/google/callback", (req, res) => {
     const { code, state } = req.query;
     // In a real app, exchange code for tokens here
     // For demo, we'll use a fixed userId from state or just assume the first user for simplicity if not provided
     // But better to pass userId in state
-    const userId = state || 1; 
+    const userId = Number(state) || 1; 
+
+    // Verify user exists before inserting connection
+    const userExists = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
+    if (!userExists) {
+      console.error(`OAuth Callback Error: User with ID ${userId} not found.`);
+      return res.status(400).send("User account not found. Please log in again.");
+    }
 
     db.prepare(`
       INSERT INTO user_connections (user_id, provider_id, connected, last_sync, storage_used)
@@ -622,14 +956,45 @@ async function startServer() {
 
   // Backups
   app.get("/api/backups/:userId", (req, res) => {
-    const backups = db.prepare("SELECT * FROM backups WHERE user_id = ? ORDER BY created_at DESC").all(req.params.userId);
+    const id = getUserId(req.params.userId);
+    if (!id) return res.status(400).json({ error: "Invalid User ID" });
+    const backups = db.prepare("SELECT * FROM backups WHERE user_id = ? ORDER BY created_at DESC").all(id);
     res.json(backups);
   });
 
   app.post("/api/backups", (req, res) => {
-    const { userId, name, size } = req.body;
-    const result = db.prepare("INSERT INTO backups (user_id, name, size) VALUES (?, ?, ?)").run(userId, name, size);
+    const id = getUserId(req.body.userId);
+    const { name, size } = req.body;
+    
+    if (!userExists(id)) {
+      return res.status(401).json({ error: "Invalid user session" });
+    }
+
+    const result = db.prepare("INSERT INTO backups (user_id, name, size) VALUES (?, ?, ?)").run(id, name, size);
     res.json({ id: result.lastInsertRowid, success: true });
+  });
+
+  // Snapshot Integrity Check
+  app.post("/api/snapshots/verify", (req, res) => {
+    const { userId } = req.body;
+    // Simulate integrity check
+    res.json({ 
+      success: true, 
+      integrityScore: 99.8, 
+      lastCheck: new Date().toISOString(),
+      status: 'verified'
+    });
+  });
+
+  // Snapshot Restore Simulation
+  app.post("/api/snapshots/restore", (req, res) => {
+    const { userId, snapshotId } = req.body;
+    // Simulate restore
+    res.json({ 
+      success: true, 
+      message: "System state restored to snapshot point.",
+      restoredAt: new Date().toISOString()
+    });
   });
 
   // Permissions
@@ -645,7 +1010,13 @@ async function startServer() {
   });
 
   app.post("/api/permissions", (req, res) => {
-    const { userId, photos_access, videos_access, email_access, documents_access, files_access } = req.body;
+    const id = getUserId(req.body.userId);
+    const { photos_access, videos_access, email_access, documents_access, files_access } = req.body;
+    
+    if (!userExists(id)) {
+      return res.status(401).json({ error: "Invalid user session" });
+    }
+
     db.prepare(`
       INSERT INTO user_permissions (user_id, photos_access, videos_access, email_access, documents_access, files_access)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -655,26 +1026,43 @@ async function startServer() {
         email_access = excluded.email_access,
         documents_access = excluded.documents_access,
         files_access = excluded.files_access
-    `).run(userId, photos_access ? 1 : 0, videos_access ? 1 : 0, email_access ? 1 : 0, documents_access ? 1 : 0, files_access ? 1 : 0);
+    `).run(id, photos_access ? 1 : 0, videos_access ? 1 : 0, email_access ? 1 : 0, documents_access ? 1 : 0, files_access ? 1 : 0);
     res.json({ success: true });
   });
 
   // User Preferences
   app.get("/api/preferences/:userId", (req, res) => {
-    const prefs = db.prepare("SELECT * FROM user_preferences WHERE user_id = ?").get(req.params.userId);
+    const id = getUserId(req.params.userId);
+    if (!id) return res.status(400).json({ error: "Invalid User ID" });
+    const prefs = db.prepare("SELECT * FROM user_preferences WHERE user_id = ?").get(id);
     res.json(prefs || { theme: 'light', auto_scan_enabled: false, notification_threshold: 80 });
   });
 
   app.post("/api/preferences", (req, res) => {
-    const { userId, theme, auto_scan_enabled, notification_threshold } = req.body;
-    db.prepare(`
-      INSERT INTO user_preferences (user_id, theme, auto_scan_enabled, notification_threshold)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET
-        theme = excluded.theme,
-        auto_scan_enabled = excluded.auto_scan_enabled,
-        notification_threshold = excluded.notification_threshold
-    `).run(userId, theme, auto_scan_enabled ? 1 : 0, notification_threshold);
+    const id = getUserId(req.body.userId);
+    const { theme, auto_scan_enabled, notification_threshold, cleanupGoal } = req.body;
+    
+    if (!userExists(id)) {
+      return res.status(401).json({ error: "Invalid user session" });
+    }
+
+    if (theme !== undefined || auto_scan_enabled !== undefined || notification_threshold !== undefined || cleanupGoal !== undefined) {
+      db.prepare(`
+        INSERT INTO user_preferences (user_id, theme, auto_scan_enabled, notification_threshold, cleanup_goal)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+          theme = COALESCE(excluded.theme, user_preferences.theme),
+          auto_scan_enabled = COALESCE(excluded.auto_scan_enabled, user_preferences.auto_scan_enabled),
+          notification_threshold = COALESCE(excluded.notification_threshold, user_preferences.notification_threshold),
+          cleanup_goal = COALESCE(excluded.cleanup_goal, user_preferences.cleanup_goal)
+      `).run(
+        id, 
+        theme ?? null, 
+        auto_scan_enabled !== undefined ? (auto_scan_enabled ? 1 : 0) : null, 
+        notification_threshold ?? null,
+        cleanupGoal ?? null
+      );
+    }
     res.json({ success: true });
   });
 

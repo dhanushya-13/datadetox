@@ -48,6 +48,7 @@ import {
   FunnelChart,
   LabelList
 } from 'recharts';
+import { NeuralTopography } from './NeuralTopography';
 import Markdown from 'react-markdown';
 import { DashboardData } from '../types';
 import { cn } from '../lib/utils';
@@ -58,72 +59,48 @@ interface AIAnalysisProps {
   onDetox?: (itemIds: string[]) => Promise<void>;
 }
 
-const VisualReport: React.FC<{ analysis: string | null }> = ({ analysis }) => {
+const VisualReport: React.FC<{ analysis: string | null; data: DashboardData }> = ({ analysis, data }) => {
   if (!analysis) return null;
 
+  // Generate deterministic but unique visualizations based on data
+  const seed = data.wellnessScore;
+  
   const treemapData = [
-    {
-      name: 'Media',
-      children: [
-        { name: 'Video', size: 4500 },
-        { name: 'Images', size: 2500 },
-        { name: 'Audio', size: 1500 },
-      ],
-    },
-    {
-      name: 'Work',
-      children: [
-        { name: 'Projects', size: 3000 },
-        { name: 'Docs', size: 1000 },
-        { name: 'Archives', size: 2000 },
-      ],
-    },
-    {
-      name: 'System',
-      children: [
-        { name: 'Logs', size: 500 },
-        { name: 'Cache', size: 1500 },
-      ],
-    },
+    { name: 'Media', size: 4500, fill: '#f43f5e' },
+    { name: 'Work', size: 3000, fill: '#10b981' },
+    { name: 'System', size: 1500, fill: '#6366f1' },
+    { name: 'Archives', size: 2000, fill: '#f59e0b' },
+    { name: 'Temp', size: 800, fill: '#94a3b8' },
   ];
 
   const funnelData = [
     { value: 100, name: 'Total Data', fill: '#f4f4f5' },
-    { value: 80, name: 'Redundant', fill: '#fbbf24' },
-    { value: 50, name: 'Flagged', fill: '#f87171' },
-    { value: 30, name: 'Detoxed', fill: '#10b981' },
+    { value: 90 - (seed / 2), name: 'Redundant', fill: '#fbbf24' },
+    { value: 70 - (seed / 3), name: 'Flagged', fill: '#f87171' },
+    { value: 100 - seed, name: 'Detoxed', fill: '#10b981' },
   ];
 
-  const entropyData = [
-    { name: 'Jan', storage: 400, entropy: 240 },
-    { name: 'Feb', storage: 300, entropy: 139 },
-    { name: 'Mar', storage: 200, entropy: 980 },
-    { name: 'Apr', storage: 278, entropy: 390 },
-    { name: 'May', storage: 189, entropy: 480 },
-    { name: 'Jun', storage: 239, entropy: 380 },
-    { name: 'Jul', storage: 349, entropy: 430 },
+  const entropyData = data.trends.slice(-7).map((t, i) => ({
+    name: i.toString(),
+    storage: t.size / (1024**3),
+    entropy: (t.size / (1024**3)) * (0.5 + Math.sin(seed + i) * 0.2)
+  }));
+
+  const radarData = [
+    { subject: 'Efficiency', A: seed + 10, fullMark: 100 },
+    { subject: 'Organization', A: seed - 5, fullMark: 100 },
+    { subject: 'Security', A: 90 + (seed % 10), fullMark: 100 },
+    { subject: 'Performance', A: seed + 5, fullMark: 100 },
+    { subject: 'Wellness', A: seed, fullMark: 100 },
   ];
 
   return (
     <div className="space-y-12">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="space-y-4">
-          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-400">Neural Funnel</h3>
+          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-400">Neural Topography</h3>
           <div className="h-64 w-full bg-zinc-50 rounded-[2rem] p-6">
-            <ResponsiveContainer width="100%" height="100%">
-              <FunnelChart>
-                <Tooltip 
-                  contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }}
-                />
-                <Funnel
-                  dataKey="value"
-                  data={funnelData}
-                  isAnimationActive
-                >
-                  <LabelList position="right" fill="#888" stroke="none" dataKey="name" />
-                </Funnel>
-              </FunnelChart>
-            </ResponsiveContainer>
+            <NeuralTopography data={treemapData} />
           </div>
         </div>
         <div className="space-y-4">
@@ -139,6 +116,24 @@ const VisualReport: React.FC<{ analysis: string | null }> = ({ analysis }) => {
                 <Bar dataKey="storage" barSize={20} fill="var(--brand-100)" radius={[10, 10, 0, 0]} />
                 <Line type="monotone" dataKey="entropy" stroke="var(--brand-500)" strokeWidth={3} dot={{ r: 4, fill: 'var(--brand-500)' }} />
               </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-400">Neural Balance</h3>
+          <div className="h-64 w-full bg-zinc-50 rounded-[2rem] p-6">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
+                <PolarGrid stroke="var(--border)" />
+                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fontWeight: 700 }} />
+                <ReRadar
+                  name="System"
+                  dataKey="A"
+                  stroke="var(--brand-500)"
+                  fill="var(--brand-500)"
+                  fillOpacity={0.5}
+                />
+              </RadarChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -272,6 +267,19 @@ Your digital ecosystem is currently operating at **68% efficiency**. We've detec
     }
   ];
 
+  const handleDownloadReport = () => {
+    if (!analysis) return;
+    const blob = new Blob([analysis], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `DataDetox_Strategic_Report_${new Date().toISOString().split('T')[0]}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-12 pb-20">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -305,19 +313,7 @@ Your digital ecosystem is currently operating at **68% efficiency**. We've detec
             </div>
             
             <div className="h-64 w-full relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <Treemap
-                  data={treemapData}
-                  dataKey="size"
-                  aspectRatio={4 / 3}
-                  stroke="#fff"
-                  fill="var(--brand-500)"
-                >
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }}
-                  />
-                </Treemap>
-              </ResponsiveContainer>
+              <NeuralTopography data={treemapData} />
             </div>
             
             <div className="mt-6 pt-6 border-t border-zinc-50 flex justify-between items-center">
@@ -450,7 +446,7 @@ Your digital ecosystem is currently operating at **68% efficiency**. We've detec
                     </div>
                   </div>
 
-                  <VisualReport analysis={analysis} />
+                  <VisualReport analysis={analysis} data={data} />
                 </div>
                 
                 <div className="mt-20 pt-10 border-t border-zinc-100 flex flex-col sm:flex-row items-center justify-between gap-8">
@@ -477,7 +473,11 @@ Your digital ecosystem is currently operating at **68% efficiency**. We've detec
                       {isDetoxing ? 'Executing Detox...' : 'Execute Strategic Detox'}
                       {!isDetoxing && <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />}
                     </button>
-                    <button className="p-4 bg-brand-50 text-brand-400 rounded-2xl hover:bg-brand-100 hover:text-brand-600 transition-all border border-brand-100" title="Download Report">
+                    <button 
+                      onClick={handleDownloadReport}
+                      className="p-4 bg-brand-50 text-brand-400 rounded-2xl hover:bg-brand-100 hover:text-brand-600 transition-all border border-brand-100" 
+                      title="Download Report"
+                    >
                       <Download size={20} />
                     </button>
                   </div>

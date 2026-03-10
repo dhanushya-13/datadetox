@@ -1,6 +1,8 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Cloud, Upload, HardDrive, Check, AlertCircle, RefreshCw } from 'lucide-react';
+import { Cloud, Upload, HardDrive, Check, AlertCircle, RefreshCw, PieChart as PieChartIcon, FileText } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+import Markdown from 'react-markdown';
 import { cn } from '../lib/utils';
 import { apiFetch } from '../lib/api';
 
@@ -14,10 +16,11 @@ interface CloudProvider {
 }
 
 interface DataSourcesViewProps {
+  user: any;
   onRefresh?: () => Promise<void>;
 }
 
-export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ onRefresh }) => {
+export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ user, onRefresh }) => {
   const [providers, setProviders] = React.useState<CloudProvider[]>([
     { id: 'google_drive', name: 'Google Drive', icon: 'https://upload.wikimedia.org/wikipedia/commons/1/12/Google_Drive_icon_%282020%29.svg', connected: false },
     { id: 'dropbox', name: 'Dropbox', icon: 'https://upload.wikimedia.org/wikipedia/commons/7/78/Dropbox_Icon.svg', connected: false },
@@ -27,12 +30,14 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ onRefresh }) =
   const [uploadProgress, setUploadProgress] = React.useState(0);
   const [uploadResult, setUploadResult] = React.useState<{
     count: number;
-    aiSummary: string;
+    report: string;
     analysis: any[];
+    visualization: {
+      typeDistribution: { name: string; value: number }[];
+      totalSize: number;
+    };
   } | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   React.useEffect(() => {
     const fetchConnections = async () => {
@@ -131,7 +136,6 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ onRefresh }) =
     setUploadProgress(0);
 
     const formData = new FormData();
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
     formData.append('userId', user.id);
     
     for (let i = 0; i < files.length; i++) {
@@ -150,8 +154,12 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ onRefresh }) =
         });
       }, 200);
 
+      const token = localStorage.getItem('token');
       const response = await fetch('/api/upload', {
         method: 'POST',
+        headers: {
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: formData,
       });
 
@@ -160,16 +168,53 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ onRefresh }) =
 
       if (response.ok) {
         const data = await response.json();
-        setUploadResult(data);
+        
+        try {
+          // Perform AI analysis on frontend
+          const { GoogleGenAI } = await import("@google/genai");
+          const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+          
+          const prompt = `
+            Analyze these manually uploaded files for a Digital Detox platform:
+            ${data.fileSummary}
+            
+            Provide a concise report including:
+            1. A summary of the upload (wordings).
+            2. A "Neural Impact" score for this specific batch.
+            3. Recommendations for these specific files.
+            Use a sophisticated, slightly futuristic tone.
+          `;
+
+          const aiResponse = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: prompt,
+          });
+
+          setUploadResult({
+            ...data,
+            report: aiResponse.text
+          });
+        } catch (aiError) {
+          console.error('AI Analysis failed:', aiError);
+          setUploadResult({
+            ...data,
+            report: "Neural analysis link failed. Files indexed successfully, but AI report unavailable at this moment."
+          });
+        }
+
         if (onRefresh) await onRefresh();
         setTimeout(() => {
           setIsUploading(false);
           setUploadProgress(0);
           if (fileInputRef.current) fileInputRef.current.value = '';
         }, 1000);
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Upload failed');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Upload failed:', error);
+      alert(`Upload Error: ${error.message}`);
       setIsUploading(false);
     }
   };
@@ -333,12 +378,15 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ onRefresh }) =
 
             {uploadResult && (
               <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-8 p-6 bg-brand-50 rounded-2xl border border-brand-100 space-y-4"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="mt-8 space-y-6"
               >
                 <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-bold text-brand-700">Analysis Result</h4>
+                  <div className="flex items-center gap-2">
+                    <PieChartIcon size={18} className="text-brand-500" />
+                    <h4 className="text-sm font-bold text-brand-700 uppercase tracking-widest">Neural Analysis Report</h4>
+                  </div>
                   <button 
                     onClick={() => setUploadResult(null)}
                     className="text-[10px] font-bold text-brand-400 uppercase tracking-widest hover:text-brand-600"
@@ -346,28 +394,77 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ onRefresh }) =
                     Dismiss
                   </button>
                 </div>
-                
-                <p className="text-xs text-brand-600 leading-relaxed italic">
-                  "{uploadResult.aiSummary}"
-                </p>
 
-                <div className="space-y-2">
-                  <p className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">Findings ({uploadResult.analysis.filter(a => a.flagged).length})</p>
-                  <div className="max-h-32 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                {/* Visualization */}
+                <div className="h-48 w-full bg-brand-50/30 rounded-3xl border border-brand-100 p-4 flex items-center">
+                  <div className="w-1/2 h-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={uploadResult.visualization.typeDistribution}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={35}
+                          outerRadius={55}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          {uploadResult.visualization.typeDistribution.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={['#10b981', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899'][index % 5]} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip 
+                          contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 20px rgba(0,0,0,0.05)', fontSize: '10px' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="w-1/2 space-y-2">
+                    <p className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">Distribution</p>
+                    {uploadResult.visualization.typeDistribution.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-[10px]">
+                        <span className="font-medium text-zinc-500 capitalize">{item.name}</span>
+                        <span className="font-bold text-zinc-900">{item.value}</span>
+                      </div>
+                    ))}
+                    <div className="pt-2 border-t border-brand-100 mt-2">
+                      <p className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">Total Size</p>
+                      <p className="text-xs font-bold text-brand-700">{(uploadResult.visualization.totalSize / 1024 / 1024).toFixed(2)} MB</p>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* AI Report */}
+                <div className="p-6 bg-white rounded-3xl border border-brand-100 shadow-sm space-y-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <FileText size={14} className="text-brand-500" />
+                    <span className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">AI Insights</span>
+                  </div>
+                  <div className="markdown-body text-xs text-zinc-600 leading-relaxed prose prose-sm prose-zinc">
+                    <Markdown>{uploadResult.report}</Markdown>
+                  </div>
+                </div>
+
+                {/* Flagged Items */}
+                <div className="space-y-3">
+                  <p className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">Flagged for Review ({uploadResult.analysis.filter(a => a.flagged).length})</p>
+                  <div className="max-h-48 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                     {uploadResult.analysis.filter(a => a.flagged).map((item, idx) => (
-                      <div key={idx} className="flex items-start gap-2 p-2 bg-white rounded-lg border border-brand-100">
-                        <AlertCircle size={12} className={cn(
+                      <div key={idx} className="flex items-start gap-3 p-3 bg-brand-50/50 rounded-2xl border border-brand-100 group hover:border-brand-300 transition-all">
+                        <AlertCircle size={14} className={cn(
                           "mt-0.5 shrink-0",
                           item.risk === 'high' ? "text-red-500" : "text-amber-500"
                         )} />
-                        <div>
-                          <p className="text-[10px] font-bold text-brand-700 truncate">{item.name}</p>
-                          <p className="text-[9px] text-muted leading-tight">{item.reason}</p>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-brand-700 truncate">{item.name}</p>
+                          <p className="text-[10px] text-zinc-500 leading-tight mt-1">{item.reason}</p>
                         </div>
                       </div>
                     ))}
                     {uploadResult.analysis.filter(a => a.flagged).length === 0 && (
-                      <p className="text-[10px] text-brand-400 italic">No immediate concerns found in this batch.</p>
+                      <div className="py-8 text-center bg-zinc-50 rounded-2xl border border-dashed border-zinc-200">
+                        <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">No risks identified</p>
+                      </div>
                     )}
                   </div>
                 </div>

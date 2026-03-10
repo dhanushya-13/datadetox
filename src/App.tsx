@@ -53,14 +53,35 @@ export default function App() {
 
   const filteredData = React.useMemo(() => {
     if (!searchQuery) return data;
-    const query = searchQuery.toLowerCase();
+    const query = searchQuery.toLowerCase().trim();
+    
+    const scoredItems = data.items.map(item => {
+      let score = 0;
+      const name = item.name.toLowerCase();
+      const type = item.type.toLowerCase();
+      const reason = (item.reason || '').toLowerCase();
+
+      // Exact match on name gets highest priority
+      if (name === query) score += 100;
+      // Starts with query
+      else if (name.startsWith(query)) score += 50;
+      // Contains query in name
+      else if (name.includes(query)) score += 30;
+
+      // Match in type
+      if (type.includes(query)) score += 15;
+      // Match in reason
+      if (reason.includes(query)) score += 10;
+
+      return { item, score };
+    });
+
     return {
       ...data,
-      items: data.items.filter(item => 
-        item.name.toLowerCase().includes(query) || 
-        item.type.toLowerCase().includes(query) ||
-        item.reason?.toLowerCase().includes(query)
-      )
+      items: scoredItems
+        .filter(si => si.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .map(si => si.item)
     };
   }, [data, searchQuery]);
 
@@ -114,18 +135,17 @@ export default function App() {
 
       if (result) {
         // Map backend data to DashboardData structure
-        const totalStorage = 400 * 1024 * 1024 * 1024; // 400GB
-        const usedStorage = result.files.reduce((acc: number, f: any) => acc + f.size, 0);
-        
-        // Simple wellness score calculation
-        const wellnessScore = Math.max(0, Math.min(100, 100 - (usedStorage / totalStorage * 100)));
+        const totalStorage = 500 * 1024 * 1024 * 1024; // 500GB
+        const usedStorage = (result.files.reduce((acc: number, f: any) => acc + f.size, 0)) + (result.storageOffset || 0);
+        const wellnessScore = result.wellnessScore || 50;
 
         setData(prev => ({
           ...prev,
           usedStorage,
-          wellnessScore: Math.round(wellnessScore),
+          wellnessScore,
           cleanupGoal: result.cleanupGoal,
           trends: trends || [],
+          forecast: result.forecast || prev.forecast,
           items: result.recommendations.map((r: any) => ({
             id: r.id,
             name: r.name,
@@ -246,6 +266,10 @@ export default function App() {
         body: JSON.stringify({ userId: user.id }),
       });
 
+      if (!stats) {
+        throw new Error('Failed to retrieve analysis statistics.');
+      }
+
       const prompt = `
         As a Digital Detox Specialist, analyze this user's storage profile:
         - Total Files: ${stats.totalFiles}
@@ -312,7 +336,7 @@ export default function App() {
       case 'analysis': return <AIAnalysis data={filteredData} onAnalyze={handleAnalyze} onDetox={handleCleanup} />;
       case 'cleanup': return <CleanupView items={filteredData.items} onCleanup={handleCleanup} onTabChange={setActiveTab} />;
       case 'wellness': return <WellnessView metrics={filteredData.metrics} />;
-      case 'sources': return <DataSourcesView onRefresh={fetchDashboardData} />;
+      case 'sources': return <DataSourcesView user={user} onRefresh={fetchDashboardData} />;
       case 'backup': return <BackupView />;
       case 'permissions': return <PermissionsView />;
       case 'settings': return (

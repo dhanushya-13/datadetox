@@ -27,7 +27,8 @@ import {
   Calendar,
   ShieldAlert,
   Zap,
-  ChevronRight
+  ChevronRight,
+  Download
 } from 'lucide-react';
 import { DashboardData } from '../types';
 import { cn } from '../lib/utils';
@@ -228,7 +229,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
             </div>
           </div>
           <h3 className="text-xl font-bold mb-3">Digital Wellness</h3>
-          <p className="text-sm text-brand-100 leading-relaxed mb-8 px-4">Your digital environment is refined but has room for optimization.</p>
+          <p className="text-sm text-black font-bold leading-relaxed mb-8 px-4">Your digital environment is refined but has room for optimization.</p>
           <button 
             onClick={() => onTabChange('cleanup')}
             className="w-full py-4 bg-amber-400 text-zinc-900 rounded-2xl font-bold text-xs tracking-widest uppercase hover:bg-amber-300 transition-all shadow-xl shadow-amber-500/40 hover:scale-[1.02] active:scale-[0.98]"
@@ -454,7 +455,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
                     )}>{item.riskLevel} Risk</span>
                   </div>
                 </div>
-                <ChevronRight size={14} className="text-brand-300 group-hover:translate-x-1 transition-transform" />
+                <div className="flex items-center gap-2">
+                  <button className="p-2 text-zinc-400 hover:text-zinc-900 transition-colors opacity-0 group-hover:opacity-100">
+                    <Download size={14} />
+                  </button>
+                  <ChevronRight size={14} className="text-brand-300 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
             ))}
           </div>

@@ -30,6 +30,43 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
   const strength = getPasswordStrength(password);
 
+  React.useEffect(() => {
+    const handleOAuthMessage = (event: MessageEvent) => {
+      // Validate origin
+      const origin = event.origin;
+      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) return;
+
+      if (event.data?.type === 'OAUTH_LOGIN_SUCCESS') {
+        const { token, user } = event.data;
+        localStorage.setItem('token', token);
+        localStorage.setItem('user', JSON.stringify(user));
+        localStorage.setItem('last_login_email', user.username);
+        setSuccess('Neural Link Established via Google. Accessing Dashboard...');
+        setTimeout(() => onLogin(user), 1000);
+      }
+    };
+
+    window.addEventListener('message', handleOAuthMessage);
+    return () => window.removeEventListener('message', handleOAuthMessage);
+  }, [onLogin]);
+
+  const handleGoogleSignIn = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const lastEmail = localStorage.getItem('last_login_email');
+      const url = lastEmail ? `/api/auth/google/login/url?login_hint=${encodeURIComponent(lastEmail)}` : '/api/auth/google/login/url';
+      const data = await apiFetch<{ url: string }>(url);
+      if (data?.url) {
+        window.open(data.url, 'google_login', 'width=600,height=700');
+      }
+    } catch (err: any) {
+      setError('Failed to initiate Google Sign-In.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -52,6 +89,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       if (data && data.token) {
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem('last_login_email', data.user.username);
         setSuccess('Neural Link Established. Accessing Dashboard...');
         setTimeout(() => onLogin(data.user), 1000);
       }
@@ -189,7 +227,9 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
           <button 
             type="button"
-            className="w-full py-4 bg-white border border-zinc-100 text-zinc-900 rounded-2xl font-bold text-xs tracking-widest uppercase hover:bg-zinc-50 transition-all flex items-center justify-center gap-3"
+            onClick={handleGoogleSignIn}
+            disabled={loading}
+            className="w-full py-4 bg-white border border-zinc-100 text-zinc-900 rounded-2xl font-bold text-xs tracking-widest uppercase hover:bg-zinc-50 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
           >
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/smartlock/google.svg" className="w-5 h-5" alt="Google" />
             Sign in with Google
