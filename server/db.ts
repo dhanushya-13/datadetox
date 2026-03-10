@@ -38,6 +38,17 @@ db.exec(`
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS backup_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    backup_id INTEGER,
+    name TEXT,
+    size INTEGER,
+    file_type TEXT,
+    original_path TEXT,
+    content TEXT,
+    FOREIGN KEY(backup_id) REFERENCES backups(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS user_preferences (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER UNIQUE,
@@ -58,6 +69,7 @@ db.exec(`
     size INTEGER,
     hash TEXT,
     file_type TEXT,
+    content TEXT,
     last_accessed DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -137,6 +149,18 @@ if (!prefColumns.includes('wellness_score')) {
 }
 if (!prefColumns.includes('storage_offset')) {
   db.exec("ALTER TABLE user_preferences ADD COLUMN storage_offset INTEGER DEFAULT 0");
+}
+
+const filesTableInfo = db.prepare("PRAGMA table_info(files_metadata)").all() as any[];
+const filesColumns = filesTableInfo.map(info => info.name);
+if (!filesColumns.includes('content')) {
+  db.exec("ALTER TABLE files_metadata ADD COLUMN content TEXT");
+}
+
+const backupItemsTableInfo = db.prepare("PRAGMA table_info(backup_items)").all() as any[];
+const backupItemsColumns = backupItemsTableInfo.map(info => info.name);
+if (!backupItemsColumns.includes('content')) {
+  db.exec("ALTER TABLE backup_items ADD COLUMN content TEXT");
 }
 
 // Ensure demo user has an email if it exists without one

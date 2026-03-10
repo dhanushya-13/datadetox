@@ -1,8 +1,17 @@
 import React from 'react';
-import { motion } from 'motion/react';
-import { Cloud, HardDrive, Shield, Clock, Plus, CheckCircle2, AlertCircle, RefreshCw, Download, RotateCcw } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Cloud, HardDrive, Shield, Clock, Plus, CheckCircle2, AlertCircle, RefreshCw, Download, RotateCcw, FileText, Video, Image, Mail, File, ChevronDown, ChevronUp, Eye, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiFetch } from '../lib/api';
+
+interface BackupItem {
+  id: number;
+  name: string;
+  size: number;
+  file_type: string;
+  original_path: string;
+  content?: string;
+}
 
 interface Backup {
   id: number;
@@ -10,6 +19,8 @@ interface Backup {
   size: number;
   status: string;
   created_at: string;
+  items?: BackupItem[];
+  isExpanded?: boolean;
 }
 
 export const BackupView: React.FC = () => {
@@ -20,6 +31,7 @@ export const BackupView: React.FC = () => {
   const [lastIntegrityCheck, setLastIntegrityCheck] = React.useState<string | null>(null);
   const [isSyncing, setIsSyncing] = React.useState(false);
   const [lastCloudSync, setLastCloudSync] = React.useState<string | null>(null);
+  const [viewingItem, setViewingItem] = React.useState<BackupItem | null>(null);
 
   const fetchBackups = async () => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -96,13 +108,45 @@ export const BackupView: React.FC = () => {
     if (!confirm('Are you sure you want to restore your system to this snapshot? Current unsaved changes will be lost.')) return;
     
     try {
-      await apiFetch('/api/snapshots/restore', {
+      const result = await apiFetch<any>('/api/snapshots/restore', {
         method: 'POST',
         body: JSON.stringify({ userId: user.id, snapshotId }),
       });
-      alert('System state restored successfully.');
+      alert(result.message || 'System state restored successfully.');
+      // Reload the page to refresh all data
+      window.location.reload();
     } catch (err) {
       console.error('Restore failed:', err);
+    }
+  };
+
+  const toggleExpand = async (backupId: number) => {
+    const backup = backups.find(b => b.id === backupId);
+    if (!backup) return;
+
+    if (!backup.items) {
+      try {
+        const items = await apiFetch<BackupItem[]>(`/api/backups/${backupId}/items`);
+        setBackups(prev => prev.map(b => 
+          b.id === backupId ? { ...b, items: items || [], isExpanded: !b.isExpanded } : b
+        ));
+      } catch (err) {
+        console.error('Failed to fetch backup items:', err);
+      }
+    } else {
+      setBackups(prev => prev.map(b => 
+        b.id === backupId ? { ...b, isExpanded: !b.isExpanded } : b
+      ));
+    }
+  };
+
+  const getFileIcon = (type: string) => {
+    switch (type) {
+      case 'image': return <Image size={14} />;
+      case 'video': return <Video size={14} />;
+      case 'document': return <FileText size={14} />;
+      case 'email': return <Mail size={14} />;
+      default: return <File size={14} />;
     }
   };
 
@@ -220,44 +264,146 @@ export const BackupView: React.FC = () => {
             </div>
           ) : (
             backups.map((backup) => (
-              <div key={backup.id} className="p-6 flex items-center justify-between hover:bg-zinc-50 transition-colors group">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-zinc-50 flex items-center justify-center text-zinc-400 group-hover:bg-white group-hover:text-zinc-900 transition-all">
-                    <HardDrive size={20} />
+              <div key={backup.id} className="divide-y divide-zinc-50">
+                <div className="p-6 flex items-center justify-between hover:bg-zinc-50 transition-colors group">
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={() => toggleExpand(backup.id)}
+                      className="w-12 h-12 rounded-xl bg-zinc-50 flex items-center justify-center text-zinc-400 group-hover:bg-white group-hover:text-zinc-900 transition-all"
+                    >
+                      {backup.isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                    </button>
+                    <div>
+                      <h4 className="font-bold text-sm text-zinc-900">{backup.name}</h4>
+                      <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-1">
+                        {new Date(backup.created_at).toLocaleString()} • {formatSize(backup.size)}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="font-bold text-sm text-zinc-900">{backup.name}</h4>
-                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-1">
-                      {new Date(backup.created_at).toLocaleString()} • {formatSize(backup.size)}
-                    </p>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full">
+                      <CheckCircle2 size={12} />
+                      <span className="text-[10px] font-bold uppercase tracking-widest">Verified</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        className="p-2 text-zinc-400 hover:text-zinc-900 transition-colors"
+                        title="Download Snapshot"
+                      >
+                        <Download size={18} />
+                      </button>
+                      <button 
+                        onClick={() => handleRestore(backup.id)}
+                        className="p-2 text-zinc-400 hover:text-brand-600 transition-colors"
+                        title="Restore to this point"
+                      >
+                        <RotateCcw size={18} />
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full">
-                    <CheckCircle2 size={12} />
-                    <span className="text-[10px] font-bold uppercase tracking-widest">Verified</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button 
-                      className="p-2 text-zinc-400 hover:text-zinc-900 transition-colors"
-                      title="Download Snapshot"
+                
+                <AnimatePresence>
+                  {backup.isExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden bg-zinc-50/50"
                     >
-                      <Download size={18} />
-                    </button>
-                    <button 
-                      onClick={() => handleRestore(backup.id)}
-                      className="p-2 text-zinc-400 hover:text-brand-600 transition-colors"
-                      title="Restore to this point"
-                    >
-                      <RotateCcw size={18} />
-                    </button>
-                  </div>
-                </div>
+                      <div className="p-6 pl-20 space-y-3">
+                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4">Archived Items ({backup.items?.length || 0})</p>
+                        {backup.items && backup.items.length > 0 ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {backup.items.map((item) => (
+                              <div key={item.id} className="flex items-center gap-3 p-3 bg-white rounded-xl border border-zinc-100 shadow-sm group/item">
+                                <div className="w-8 h-8 rounded-lg bg-zinc-50 flex items-center justify-center text-zinc-400">
+                                  {getFileIcon(item.file_type)}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-bold text-zinc-900 truncate">{item.name}</p>
+                                  <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest truncate">{item.original_path}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-bold text-zinc-500">{(item.size / (1024 * 1024)).toFixed(2)} MB</span>
+                                  {item.content && (
+                                    <button 
+                                      onClick={() => setViewingItem(item)}
+                                      className="p-1.5 text-zinc-300 hover:text-zinc-900 transition-colors"
+                                      title="View Content"
+                                    >
+                                      <Eye size={14} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-zinc-400 italic">No individual items recorded for this snapshot.</p>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             ))
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {viewingItem && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setViewingItem(null)}
+              className="absolute inset-0 bg-zinc-900/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-zinc-100 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-zinc-50 flex items-center justify-center text-zinc-900">
+                    {viewingItem.file_type === 'email' ? <Mail size={24} /> : <FileText size={24} />}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-xl tracking-tight">{viewingItem.name}</h3>
+                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{viewingItem.original_path}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setViewingItem(null)}
+                  className="p-3 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-50 rounded-2xl transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-8 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                <div className="bg-zinc-50 rounded-3xl p-8 border border-zinc-100">
+                  <pre className="text-sm text-zinc-600 font-mono whitespace-pre-wrap leading-relaxed">
+                    {viewingItem.content}
+                  </pre>
+                </div>
+              </div>
+              <div className="p-8 bg-zinc-50/50 border-t border-zinc-100 flex justify-end">
+                <button 
+                  onClick={() => setViewingItem(null)}
+                  className="px-8 py-3 bg-zinc-900 text-white rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-zinc-800 transition-all"
+                >
+                  Close Preview
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

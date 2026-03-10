@@ -16,7 +16,9 @@ import {
   ChevronRight,
   Search,
   ShieldCheck,
-  PlayCircle
+  PlayCircle,
+  Eye,
+  X
 } from 'lucide-react';
 import { StorageItem } from '../types';
 import { cn } from '../lib/utils';
@@ -33,6 +35,7 @@ export const CleanupView: React.FC<CleanupViewProps> = ({ items, onCleanup, onTa
   const [isSimulating, setIsSimulating] = React.useState(false);
   const [isCleaning, setIsCleaning] = React.useState(false);
   const [showSuccess, setShowSuccess] = React.useState(false);
+  const [viewingItem, setViewingItem] = React.useState<StorageItem | null>(null);
 
   const filteredItems = items.filter(item => {
     if (filter === 'duplicates') return item.isDuplicate;
@@ -171,9 +174,21 @@ export const CleanupView: React.FC<CleanupViewProps> = ({ items, onCleanup, onTa
                     </div>
                   </div>
 
-                  <div className="text-right shrink-0">
+                  <div className="text-right shrink-0 flex flex-col items-end gap-2">
                     <p className="font-bold text-lg tracking-tight">{(item.size / (1024 * 1024)).toFixed(1)} MB</p>
                     <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-0.5">Risk: {item.riskLevel}</p>
+                    {item.content && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setViewingItem(item);
+                        }}
+                        className="p-2 bg-zinc-50 text-zinc-400 hover:text-zinc-900 rounded-xl transition-all"
+                        title="View Content"
+                      >
+                        <Eye size={14} />
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               ))}
@@ -257,6 +272,59 @@ export const CleanupView: React.FC<CleanupViewProps> = ({ items, onCleanup, onTa
           </div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {viewingItem && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setViewingItem(null)}
+              className="absolute inset-0 bg-zinc-900/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-zinc-100 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-zinc-50 flex items-center justify-center text-zinc-900">
+                    {viewingItem.type === 'email' ? <Mail size={24} /> : <FileText size={24} />}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-xl tracking-tight">{viewingItem.name}</h3>
+                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{viewingItem.path}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setViewingItem(null)}
+                  className="p-3 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-50 rounded-2xl transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-8 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                <div className="bg-zinc-50 rounded-3xl p-8 border border-zinc-100">
+                  <pre className="text-sm text-zinc-600 font-mono whitespace-pre-wrap leading-relaxed">
+                    {viewingItem.content}
+                  </pre>
+                </div>
+              </div>
+              <div className="p-8 bg-zinc-50/50 border-t border-zinc-100 flex justify-end">
+                <button 
+                  onClick={() => setViewingItem(null)}
+                  className="px-8 py-3 bg-zinc-900 text-white rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-zinc-800 transition-all"
+                >
+                  Close Preview
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -15,7 +15,9 @@ import {
   Brain,
   Database,
   Terminal,
-  Activity
+  Activity,
+  Menu,
+  X
 } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { AIAnalysis } from './components/AIAnalysis';
@@ -40,6 +42,7 @@ export default function App() {
   const [theme, setTheme] = React.useState('light');
   const [searchQuery, setSearchQuery] = React.useState('');
   const [showNotifications, setShowNotifications] = React.useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [notifications, setNotifications] = React.useState([
     { id: 1, title: 'Neural Scan Complete', time: '2m ago', icon: <Zap size={14} />, type: 'scan', read: false },
     { id: 2, title: 'Security Alert: New Device', time: '1h ago', icon: <ShieldCheck size={14} />, type: 'security', read: false },
@@ -383,14 +386,38 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-[#F5F5F7] overflow-hidden selection:bg-zinc-900 selection:text-white">
+    <div className="flex h-screen bg-[#F5F5F7] overflow-hidden selection:bg-zinc-900 selection:text-white relative">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm z-[60] lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-zinc-200/60 flex flex-col z-50 overflow-y-auto custom-scrollbar">
-        <div className="p-8 flex items-center gap-3 shrink-0">
-          <div className="w-10 h-10 bg-brand-500 rounded-xl flex items-center justify-center text-white shadow-xl shadow-brand-200">
-            <Wind size={20} />
+      <aside className={cn(
+        "fixed lg:relative w-64 h-full bg-white border-r border-zinc-200/60 flex flex-col z-[70] overflow-y-auto custom-scrollbar transition-transform duration-500 ease-[0.23, 1, 0.32, 1]",
+        isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+      )}>
+        <div className="p-8 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-brand-500 rounded-xl flex items-center justify-center text-white shadow-xl shadow-brand-200">
+              <Wind size={20} />
+            </div>
+            <span className="font-bold text-xl tracking-tighter text-brand-700">DataDetox</span>
           </div>
-          <span className="font-bold text-xl tracking-tighter text-brand-700">DataDetox</span>
+          <button 
+            onClick={() => setIsSidebarOpen(false)}
+            className="lg:hidden p-2 text-zinc-400 hover:text-zinc-900 transition-colors"
+          >
+            <X size={20} />
+          </button>
         </div>
 
         <div className="px-6 mb-6 shrink-0">
@@ -417,7 +444,10 @@ export default function App() {
           ].map((item) => (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => {
+                setActiveTab(item.id);
+                setIsSidebarOpen(false);
+              }}
               className={cn(
                 "w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all duration-300 group relative",
                 activeTab === item.id 
@@ -474,9 +504,16 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-24 bg-transparent px-12 flex items-center justify-between shrink-0">
-          <div className="flex-1 max-w-xl">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        <header className="h-24 bg-transparent px-6 lg:px-12 flex items-center justify-between shrink-0 gap-4">
+          <button 
+            onClick={() => setIsSidebarOpen(true)}
+            className="lg:hidden p-3 bg-white border border-zinc-200/60 rounded-2xl text-zinc-900 shadow-sm"
+          >
+            <Menu size={20} />
+          </button>
+          
+          <div className="flex-1 max-w-xl hidden sm:block">
             <div className="relative group">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-zinc-900 transition-colors" size={18} />
               <input 
@@ -584,7 +621,7 @@ export default function App() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-12 pb-12 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto px-6 lg:px-12 pb-12 custom-scrollbar">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}

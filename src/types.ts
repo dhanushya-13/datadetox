@@ -10,6 +10,7 @@ export interface StorageItem {
   confidenceScore?: number; // 0-100
   riskLevel?: 'low' | 'medium' | 'high';
   reason?: string;
+  content?: string;
 }
 
 export interface ForecastPoint {

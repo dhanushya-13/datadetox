@@ -316,13 +316,15 @@ async function startServer() {
           size: Math.floor(Math.random() * (type === 'video' ? 500 : 50) * 1024 * 1024),
           hash: Math.random().toString(36).substring(7),
           type: type,
-          lastAccessed: new Date(Date.now() - Math.random() * 10000000000).toISOString()
+          lastAccessed: new Date(Date.now() - Math.random() * 10000000000).toISOString(),
+          content: type === 'email' ? `From: system@datadetox.ai\nSubject: ${baseName}\n\nThis is a simulated email content for ${baseName}. It contains neural patterns and digital residue that should be cleaned up.` : 
+                   type === 'document' ? `Neural Report for ${baseName}\n\nStatus: ARCHIVED\nIntegrity: 99.8%\n\nThis document contains sensitive system metadata.` : null
         };
       });
 
       const insertFile = db.prepare(`
-        INSERT INTO files_metadata (user_id, name, path, size, hash, file_type, last_accessed)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO files_metadata (user_id, name, path, size, hash, file_type, last_accessed, content)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const insertRecommendation = db.prepare(`
@@ -332,7 +334,7 @@ async function startServer() {
 
       const transaction = db.transaction(() => {
         for (const file of newFiles) {
-          const result = insertFile.run(id, file.name, file.path, file.size, file.hash, file.type, file.lastAccessed);
+          const result = insertFile.run(id, file.name, file.path, file.size, file.hash, file.type, file.lastAccessed, file.content);
           const fileId = result.lastInsertRowid;
 
           if (Math.random() > 0.5) {
@@ -394,7 +396,7 @@ async function startServer() {
     try {
       // Get file IDs and total size first to create a backup record
       const items = db.prepare(`
-        SELECT file_id, size FROM cleanup_recommendations r
+        SELECT f.id as file_id, f.name, f.size, f.file_type, f.path, f.content FROM cleanup_recommendations r
         JOIN files_metadata f ON r.file_id = f.id
         WHERE r.id IN (${placeholders})
       `).all(...itemIds) as any[];
@@ -404,10 +406,25 @@ async function startServer() {
 
       // Create a backup record for these files
       if (totalSize > 0) {
-        db.prepare(`
+        const backupResult = db.prepare(`
           INSERT INTO backups (user_id, name, size, status)
           VALUES (?, ?, ?, ?)
         `).run(id, `Cleanup_Archive_${new Date().toISOString().split('T')[0]}_${Math.floor(Math.random() * 1000)}`, totalSize, 'completed');
+        
+        const backupId = backupResult.lastInsertRowid;
+        
+        // Insert items into backup_items
+        const insertBackupItem = db.prepare(`
+          INSERT INTO backup_items (backup_id, name, size, file_type, original_path, content)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        
+        const archiveTransaction = db.transaction((items) => {
+          for (const item of items) {
+            insertBackupItem.run(backupId, item.name, item.size, item.file_type, item.path, item.content);
+          }
+        });
+        archiveTransaction(items);
       }
 
       if (fileIds.length > 0) {
@@ -974,6 +991,11 @@ async function startServer() {
     res.json({ id: result.lastInsertRowid, success: true });
   });
 
+  app.get("/api/backups/:backupId/items", (req, res) => {
+    const items = db.prepare("SELECT * FROM backup_items WHERE backup_id = ?").all(req.params.backupId);
+    res.json(items);
+  });
+
   // Snapshot Integrity Check
   app.post("/api/snapshots/verify", (req, res) => {
     const { userId } = req.body;
@@ -986,15 +1008,48 @@ async function startServer() {
     });
   });
 
-  // Snapshot Restore Simulation
+  // Snapshot Restore
   app.post("/api/snapshots/restore", (req, res) => {
-    const { userId, snapshotId } = req.body;
-    // Simulate restore
-    res.json({ 
-      success: true, 
-      message: "System state restored to snapshot point.",
-      restoredAt: new Date().toISOString()
-    });
+    const id = getUserId(req.body.userId);
+    const { snapshotId } = req.body;
+    
+    if (!userExists(id)) {
+      return res.status(401).json({ error: "Invalid user session" });
+    }
+
+    try {
+      const items = db.prepare("SELECT * FROM backup_items WHERE backup_id = ?").all(snapshotId) as any[];
+      
+      if (items.length === 0) {
+        return res.status(404).json({ error: "No items found in this snapshot" });
+      }
+
+      const insertFile = db.prepare(`
+        INSERT INTO files_metadata (user_id, name, size, file_type, path, last_accessed, content)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const restoreTransaction = db.transaction((items) => {
+        for (const item of items) {
+          insertFile.run(id, item.name, item.size, item.file_type, item.original_path, new Date().toISOString(), item.content);
+        }
+      });
+
+      restoreTransaction(items);
+
+      // Record trend after restore
+      const totalUsed = db.prepare("SELECT SUM(size) as total FROM files_metadata WHERE user_id = ?").get(id) as any;
+      db.prepare("INSERT INTO storage_trends (user_id, total_used_size) VALUES (?, ?)").run(id, totalUsed.total || 0);
+
+      res.json({ 
+        success: true, 
+        message: `${items.length} files restored successfully.`,
+        restoredAt: new Date().toISOString()
+      });
+    } catch (err) {
+      console.error('Restore failed:', err);
+      res.status(500).json({ error: "Failed to restore snapshot" });
+    }
   });
 
   // Permissions
