@@ -16,8 +16,7 @@ import {
   Database,
   Terminal,
   Activity,
-  Menu,
-  X
+  Lightbulb
 } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { AIAnalysis } from './components/AIAnalysis';
@@ -28,6 +27,7 @@ import { BackupView } from './components/BackupView';
 import { PermissionsView } from './components/PermissionsView';
 import { Auth } from './components/Auth';
 import { AccessControlView } from './components/AccessControlView';
+import { RecommendationsView } from './components/RecommendationsView';
 import { mockDashboardData } from './mockData';
 import { cn } from './lib/utils';
 import { apiFetch } from './lib/api';
@@ -42,7 +42,6 @@ export default function App() {
   const [theme, setTheme] = React.useState('light');
   const [searchQuery, setSearchQuery] = React.useState('');
   const [showNotifications, setShowNotifications] = React.useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [notifications, setNotifications] = React.useState([
     { id: 1, title: 'Neural Scan Complete', time: '2m ago', icon: <Zap size={14} />, type: 'scan', read: false },
     { id: 2, title: 'Security Alert: New Device', time: '1h ago', icon: <ShieldCheck size={14} />, type: 'security', read: false },
@@ -290,8 +289,8 @@ export default function App() {
       const { GoogleGenAI } = await import("@google/genai");
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
+        model: "gemini-flash-latest",
+        contents: [{ parts: [{ text: prompt }] }],
       });
 
       return response.text;
@@ -337,10 +336,11 @@ export default function App() {
     switch (activeTab) {
       case 'dashboard': return <Dashboard data={filteredData} onScan={handleScan} onTabChange={setActiveTab} scanProgress={scanProgress} onUpdateGoal={updateCleanupGoal} />;
       case 'analysis': return <AIAnalysis data={filteredData} onAnalyze={handleAnalyze} onDetox={handleCleanup} />;
+      case 'recommendations': return <RecommendationsView data={filteredData} />;
       case 'cleanup': return <CleanupView items={filteredData.items} onCleanup={handleCleanup} onTabChange={setActiveTab} />;
       case 'wellness': return <WellnessView metrics={filteredData.metrics} />;
       case 'sources': return <DataSourcesView user={user} onRefresh={fetchDashboardData} />;
-      case 'backup': return <BackupView />;
+      case 'backup': return <BackupView onRefresh={fetchDashboardData} />;
       case 'permissions': return <PermissionsView />;
       case 'settings': return (
         <div className="space-y-8 pb-20 overflow-y-auto max-h-full custom-scrollbar">
@@ -387,153 +387,43 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-[#F5F5F7] overflow-hidden selection:bg-zinc-900 selection:text-white relative">
-      {/* Mobile Sidebar Overlay */}
-      <AnimatePresence>
-        {isSidebarOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setIsSidebarOpen(false)}
-            className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm z-[60] lg:hidden"
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Sidebar */}
-      <aside className={cn(
-        "fixed lg:relative w-64 h-full bg-white border-r border-zinc-200/60 flex flex-col z-[70] overflow-y-auto custom-scrollbar transition-transform duration-500 ease-[0.23, 1, 0.32, 1]",
-        isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-      )}>
-        <div className="p-8 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        <header className="h-24 bg-white/80 backdrop-blur-md px-6 lg:px-12 flex items-center justify-between shrink-0 gap-4 border-b border-zinc-200/60 sticky top-0 z-50">
+          <div className="flex items-center gap-4">
             <div className="w-10 h-10 bg-brand-500 rounded-xl flex items-center justify-center text-white shadow-xl shadow-brand-200">
               <Wind size={20} />
             </div>
-            <span className="font-bold text-xl tracking-tighter text-brand-700">DataDetox</span>
+            <span className="font-bold text-xl tracking-tighter text-brand-700 hidden sm:block">DataDetox</span>
           </div>
-          <button 
-            onClick={() => setIsSidebarOpen(false)}
-            className="lg:hidden p-2 text-zinc-400 hover:text-zinc-900 transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="px-6 mb-6 shrink-0">
-          <div className="relative group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-300 group-focus-within:text-zinc-900 transition-colors" size={16} />
-            <input 
-              type="text" 
-              placeholder="Deep search..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-zinc-50 border border-zinc-100 rounded-2xl py-3 pl-11 pr-4 text-xs font-bold tracking-tight placeholder:text-zinc-300 focus:outline-none focus:border-zinc-900 focus:bg-white transition-all"
-            />
-          </div>
-        </div>
-
-        <nav className="flex-1 px-4 space-y-1 mt-4">
-          {[
-            { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
-            { id: 'analysis', label: 'AI Intelligence', icon: Sparkles },
-            { id: 'cleanup', label: 'Cleanup Center', icon: Trash2 },
-            { id: 'sources', label: 'Data Sources', icon: Database },
-            { id: 'backup', label: 'Backup Space', icon: ShieldCheck },
-            { id: 'permissions', label: 'Access Control', icon: Lock },
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => {
-                setActiveTab(item.id);
-                setIsSidebarOpen(false);
-              }}
-              className={cn(
-                "w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all duration-300 group relative",
-                activeTab === item.id 
-                  ? "bg-brand-500 text-white shadow-2xl shadow-brand-200" 
-                  : "text-muted hover:bg-brand-50 hover:text-brand-600"
-              )}
-            >
-              <item.icon size={18} className={cn(
-                "transition-transform duration-300 group-hover:scale-110",
-                activeTab === item.id ? "text-white" : "text-zinc-300 group-hover:text-zinc-900"
-              )} />
-              <span className="text-sm font-bold tracking-tight">{item.label}</span>
-              {activeTab === item.id && (
-                <motion.div layoutId="active-pill" className="absolute left-0 w-1 h-6 bg-white rounded-r-full" />
-              )}
-            </button>
-          ))}
-        </nav>
-
-        <div className="p-6 border-t border-zinc-100 space-y-4 shrink-0">
-          <div className="flex items-center gap-3 px-4 py-2 bg-zinc-50 rounded-xl border border-zinc-100">
-            <div className={cn("w-2 h-2 rounded-full animate-pulse", wsStatus.includes('Active') ? "bg-emerald-500" : "bg-amber-500")} />
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{wsStatus}</span>
-          </div>
-          <button 
-            onClick={() => setActiveTab('settings')}
-            className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all group",
-              activeTab === 'settings' ? "bg-brand-500 text-white shadow-xl shadow-brand-200" : "text-zinc-400 hover:bg-zinc-50 hover:text-zinc-900"
-            )}
-          >
-            <Settings size={18} className={cn("transition-transform duration-500", activeTab === 'settings' ? "rotate-45" : "group-hover:rotate-45")} />
-            <span className="text-sm font-bold">Settings</span>
-          </button>
-
-          <div className="pt-4 border-t border-zinc-100 flex items-center justify-between px-2">
+          
+          <nav className="hidden lg:flex items-center gap-1 bg-zinc-100/50 p-1 rounded-2xl border border-zinc-200/60">
             {[
-              { id: 'light', color: 'bg-white border-zinc-200' },
-              { id: 'dark', color: 'bg-zinc-900 border-zinc-800' },
-              { id: 'ethereal', color: 'bg-blue-500 border-blue-400' },
-            ].map((t) => (
+              { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
+              { id: 'analysis', label: 'AI Intelligence', icon: Sparkles },
+              { id: 'recommendations', label: 'Neural Tips', icon: Lightbulb },
+              { id: 'cleanup', label: 'Cleanup Center', icon: Trash2 },
+              { id: 'sources', label: 'Data Sources', icon: Database },
+              { id: 'backup', label: 'Backup Space', icon: ShieldCheck },
+              { id: 'permissions', label: 'Access Control', icon: Lock },
+            ].map((item) => (
               <button
-                key={t.id}
-                onClick={() => updateTheme(t.id)}
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
                 className={cn(
-                  "w-8 h-8 rounded-full border-2 transition-all",
-                  t.color,
-                  theme === t.id ? "scale-125 shadow-lg" : "opacity-50 hover:opacity-100"
+                  "flex items-center gap-2 px-4 py-2 rounded-xl transition-all text-xs font-bold tracking-tight",
+                  activeTab === item.id 
+                    ? "bg-white text-brand-600 shadow-sm border border-zinc-200/60" 
+                    : "text-zinc-400 hover:text-zinc-900 hover:bg-white/50"
                 )}
-              />
+              >
+                <item.icon size={14} />
+                <span>{item.label}</span>
+              </button>
             ))}
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <header className="h-24 bg-transparent px-6 lg:px-12 flex items-center justify-between shrink-0 gap-4">
-          <button 
-            onClick={() => setIsSidebarOpen(true)}
-            className="lg:hidden p-3 bg-white border border-zinc-200/60 rounded-2xl text-zinc-900 shadow-sm"
-          >
-            <Menu size={20} />
-          </button>
+          </nav>
           
-          <div className="flex-1 max-w-xl hidden sm:block">
-            <div className="relative group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-zinc-900 transition-colors" size={18} />
-              <input 
-                type="text" 
-                placeholder="Search intelligence, files, or behavioral patterns..." 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-white border border-zinc-200/60 rounded-2xl py-3.5 pl-12 pr-4 text-sm font-medium focus:ring-4 focus:ring-zinc-900/5 focus:border-zinc-300 transition-all outline-none shadow-sm"
-              />
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-6">
-            <div className="hidden lg:flex items-center gap-4 px-4 py-2 bg-white rounded-2xl border border-zinc-200/60 shadow-sm">
-              <Activity size={16} className="text-zinc-900" />
-              <div className="text-left">
-                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-none">System Load</p>
-                <p className="text-xs font-bold text-zinc-900 mt-1">12% CPU • 4.2GB RAM</p>
-              </div>
-            </div>
+          <div className="flex items-center gap-4">
             <div className="relative">
               <button 
                 onClick={() => setShowNotifications(!showNotifications)}
@@ -622,6 +512,33 @@ export default function App() {
         </header>
 
         <div className="flex-1 overflow-y-auto px-6 lg:px-12 pb-12 custom-scrollbar">
+          {/* Mobile Navigation */}
+          <div className="lg:hidden py-6 flex overflow-x-auto gap-2 no-scrollbar">
+            {[
+              { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
+              { id: 'analysis', label: 'AI Intelligence', icon: Sparkles },
+              { id: 'recommendations', label: 'Neural Tips', icon: Lightbulb },
+              { id: 'cleanup', label: 'Cleanup Center', icon: Trash2 },
+              { id: 'sources', label: 'Data Sources', icon: Database },
+              { id: 'backup', label: 'Backup Space', icon: ShieldCheck },
+              { id: 'permissions', label: 'Access Control', icon: Lock },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2.5 rounded-2xl transition-all text-xs font-bold tracking-tight whitespace-nowrap",
+                  activeTab === item.id 
+                    ? "bg-brand-500 text-white shadow-lg shadow-brand-200" 
+                    : "bg-white text-zinc-400 border border-zinc-200/60"
+                )}
+              >
+                <item.icon size={14} />
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}

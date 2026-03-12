@@ -46,6 +46,9 @@ db.exec(`
     file_type TEXT,
     original_path TEXT,
     content TEXT,
+    confidence_score REAL,
+    risk_level TEXT,
+    reason TEXT,
     FOREIGN KEY(backup_id) REFERENCES backups(id) ON DELETE CASCADE
   );
 
@@ -161,6 +164,15 @@ const backupItemsTableInfo = db.prepare("PRAGMA table_info(backup_items)").all()
 const backupItemsColumns = backupItemsTableInfo.map(info => info.name);
 if (!backupItemsColumns.includes('content')) {
   db.exec("ALTER TABLE backup_items ADD COLUMN content TEXT");
+}
+if (!backupItemsColumns.includes('confidence_score')) {
+  db.exec("ALTER TABLE backup_items ADD COLUMN confidence_score REAL");
+}
+if (!backupItemsColumns.includes('risk_level')) {
+  db.exec("ALTER TABLE backup_items ADD COLUMN risk_level TEXT");
+}
+if (!backupItemsColumns.includes('reason')) {
+  db.exec("ALTER TABLE backup_items ADD COLUMN reason TEXT");
 }
 
 // Ensure demo user has an email if it exists without one

@@ -132,7 +132,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
               <User className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-zinc-900 transition-colors" size={18} />
               <input 
                 type="text" 
-                placeholder="Username" 
+                placeholder="Username or Email" 
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
@@ -249,6 +249,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Demo Access</p>
               <p className="text-xs font-medium text-zinc-600">
                 User: <span className="font-bold text-zinc-900">demo</span> • 
+                Email: <span className="font-bold text-zinc-900">demo@datadetox.ai</span> • 
                 Pass: <span className="font-bold text-zinc-900">password123</span>
               </p>
             </div>

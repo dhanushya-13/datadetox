@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Cloud, HardDrive, Shield, Clock, Plus, CheckCircle2, AlertCircle, RefreshCw, Download, RotateCcw, FileText, Video, Image, Mail, File, ChevronDown, ChevronUp, Eye, X } from 'lucide-react';
+import { Cloud, HardDrive, Shield, Clock, Plus, CheckCircle2, AlertCircle, RefreshCw, Download, RotateCcw, FileText, Video, Image, Mail, File, ChevronDown, ChevronUp, Eye, X, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiFetch } from '../lib/api';
 
@@ -23,7 +23,11 @@ interface Backup {
   isExpanded?: boolean;
 }
 
-export const BackupView: React.FC = () => {
+interface BackupViewProps {
+  onRefresh?: () => Promise<void>;
+}
+
+export const BackupView: React.FC<BackupViewProps> = ({ onRefresh }) => {
   const [backups, setBackups] = React.useState<Backup[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [isCreating, setIsCreating] = React.useState(false);
@@ -57,13 +61,14 @@ export const BackupView: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({
           userId: user.id,
-          name: `Neural_Snapshot_${new Date().toISOString().split('T')[0]}`,
-          size: Math.floor(Math.random() * 5000000000) + 1000000000 // 1-6 GB
+          name: `Neural_Snapshot_${new Date().toISOString().split('T')[0]}_${Math.floor(Math.random() * 1000)}`
         }),
       });
       await fetchBackups();
+      alert('Neural Snapshot created successfully.');
     } catch (err) {
       console.error('Failed to create backup:', err);
+      alert('Failed to create snapshot.');
     } finally {
       setIsCreating(false);
     }
@@ -78,7 +83,7 @@ export const BackupView: React.FC = () => {
         body: JSON.stringify({ userId: user.id }),
       });
       setLastIntegrityCheck(new Date(result.lastCheck).toLocaleString());
-      alert('Neural Integrity Check Complete: System state is 99.8% consistent.');
+      alert(`Neural Integrity Check Complete: System state is ${result.integrityScore}% consistent. Status: ${result.status.toUpperCase()}`);
     } catch (err) {
       console.error('Verification failed:', err);
     } finally {
@@ -113,10 +118,83 @@ export const BackupView: React.FC = () => {
         body: JSON.stringify({ userId: user.id, snapshotId }),
       });
       alert(result.message || 'System state restored successfully.');
-      // Reload the page to refresh all data
-      window.location.reload();
+      if (onRefresh) {
+        await onRefresh();
+      } else {
+        window.location.reload();
+      }
     } catch (err) {
       console.error('Restore failed:', err);
+    }
+  };
+
+  const handleDeleteSnapshot = async (snapshotId: number) => {
+    if (!confirm('Are you sure you want to permanently delete this snapshot? This action cannot be undone.')) return;
+    
+    try {
+      await apiFetch(`/api/backups/${snapshotId}`, {
+        method: 'DELETE',
+      });
+      await fetchBackups();
+      alert('Snapshot deleted successfully.');
+    } catch (err) {
+      console.error('Delete failed:', err);
+      alert('Failed to delete snapshot.');
+    }
+  };
+
+  const handleDownloadSnapshot = (backup: Backup) => {
+    const data = JSON.stringify(backup, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${backup.name}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    alert('Snapshot download initiated.');
+  };
+
+  const handleDeleteItem = async (backupId: number, itemId: number) => {
+    if (!confirm('Are you sure you want to remove this item from the snapshot?')) return;
+    
+    try {
+      await apiFetch(`/api/backups/${backupId}/items/${itemId}`, {
+        method: 'DELETE',
+      });
+      // Refresh all backups to get updated sizes and items
+      await fetchBackups();
+      // Re-expand the backup that was just modified
+      setBackups(prev => prev.map(b => 
+        b.id === backupId ? { ...b, isExpanded: true } : b
+      ));
+      alert('Item removed from snapshot.');
+    } catch (err) {
+      console.error('Delete item failed:', err);
+      alert('Failed to remove item.');
+    }
+  };
+
+  const handleRestoreItem = async (backupId: number, itemId: number) => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (!confirm('Restore this specific item? If it exists, it will be overwritten.')) return;
+    
+    try {
+      await apiFetch(`/api/backups/${backupId}/items/${itemId}/restore`, {
+        method: 'POST',
+        body: JSON.stringify({ userId: user.id }),
+      });
+      alert('Item restored successfully.');
+      if (onRefresh) {
+        await onRefresh();
+      } else {
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error('Restore item failed:', err);
+      alert('Failed to restore item.');
     }
   };
 
@@ -287,6 +365,7 @@ export const BackupView: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2">
                       <button 
+                        onClick={() => handleDownloadSnapshot(backup)}
                         className="p-2 text-zinc-400 hover:text-zinc-900 transition-colors"
                         title="Download Snapshot"
                       >
@@ -298,6 +377,13 @@ export const BackupView: React.FC = () => {
                         title="Restore to this point"
                       >
                         <RotateCcw size={18} />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteSnapshot(backup.id)}
+                        className="p-2 text-zinc-400 hover:text-rose-600 transition-colors"
+                        title="Delete Snapshot"
+                      >
+                        <Trash2 size={18} />
                       </button>
                     </div>
                   </div>
@@ -311,8 +397,17 @@ export const BackupView: React.FC = () => {
                       exit={{ height: 0, opacity: 0 }}
                       className="overflow-hidden bg-zinc-50/50"
                     >
-                      <div className="p-6 pl-20 space-y-3">
-                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4">Archived Items ({backup.items?.length || 0})</p>
+                      <div className="p-6 pl-20 space-y-6">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Archived Items ({backup.items?.length || 0})</p>
+                          <button 
+                            onClick={() => handleRestore(backup.id)}
+                            className="flex items-center gap-2 px-4 py-1.5 bg-brand-50 text-brand-600 rounded-full text-[10px] font-bold uppercase tracking-widest hover:bg-brand-100 transition-all"
+                          >
+                            <RotateCcw size={12} />
+                            Restore Full Snapshot
+                          </button>
+                        </div>
                         {backup.items && backup.items.length > 0 ? (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {backup.items.map((item) => (
@@ -335,6 +430,20 @@ export const BackupView: React.FC = () => {
                                       <Eye size={14} />
                                     </button>
                                   )}
+                                  <button 
+                                    onClick={() => handleRestoreItem(backup.id, item.id)}
+                                    className="p-1.5 text-zinc-300 hover:text-brand-600 transition-colors"
+                                    title="Restore Item"
+                                  >
+                                    <RotateCcw size={14} />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteItem(backup.id, item.id)}
+                                    className="p-1.5 text-zinc-300 hover:text-rose-600 transition-colors"
+                                    title="Delete Item"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
                                 </div>
                               </div>
                             ))}

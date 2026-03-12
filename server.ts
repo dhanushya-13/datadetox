@@ -29,17 +29,20 @@ async function startServer() {
 
   // Seed Demo User
   const seedDemoUser = async () => {
-    const demoUser = db.prepare("SELECT id FROM users WHERE username = ?").get("demo");
+    const demoUser = db.prepare("SELECT id FROM users WHERE username = ?").get("demo") as any;
+    const hashedPassword = await bcrypt.hash("password123", 8);
+    
     if (!demoUser) {
       console.log("Seeding demo user...");
-      const hashedPassword = await bcrypt.hash("password123", 8);
-      const result = db.prepare("INSERT INTO users (username, password, is_verified) VALUES (?, ?, ?)").run("demo", hashedPassword, 1);
+      const result = db.prepare("INSERT INTO users (username, email, password, is_verified) VALUES (?, ?, ?, ?)").run("demo", "demo@datadetox.ai", hashedPassword, 1);
       const userId = result.lastInsertRowid;
       db.prepare("INSERT INTO user_permissions (user_id) VALUES (?)").run(userId);
       db.prepare("INSERT INTO user_preferences (user_id) VALUES (?)").run(userId);
       console.log("Demo user 'demo' created with password 'password123'");
     } else {
-      console.log("Demo user 'demo' already exists.");
+      console.log("Demo user 'demo' already exists. Synchronizing password...");
+      // Ensure password is correct for demo user
+      db.prepare("UPDATE users SET password = ?, email = 'demo@datadetox.ai', is_verified = 1 WHERE username = ?").run(hashedPassword, "demo");
     }
   };
   await seedDemoUser();
@@ -125,35 +128,36 @@ async function startServer() {
 
   app.post("/api/auth/login", async (req, res) => {
     const { username, password } = req.body;
-    const trimmedUsername = username?.trim();
-    console.log(`Login attempt for: ${trimmedUsername}`);
+    const identifier = username?.trim();
+    console.log(`Login attempt for identifier: ${identifier}`);
 
-    if (!trimmedUsername || !password) {
-      return res.status(400).json({ error: "Username and password required" });
+    if (!identifier || !password) {
+      return res.status(400).json({ error: "Username/Email and password required" });
     }
 
     try {
-      const user: any = db.prepare("SELECT * FROM users WHERE username = ?").get(trimmedUsername);
+      // Allow login with either username or email
+      const user: any = db.prepare("SELECT * FROM users WHERE username = ? OR email = ?").get(identifier, identifier);
       
       if (user) {
-        console.log(`User found: ${trimmedUsername}. Comparing passwords...`);
+        console.log(`User found: ${user.username} (ID: ${user.id}). Comparing passwords...`);
         const isMatch = await bcrypt.compare(password, user.password);
         if (isMatch) {
           const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '24h' });
-          console.log(`User logged in successfully: ${trimmedUsername}`);
-          return res.json({ token, user: { id: user.id, username: user.username } });
+          console.log(`User logged in successfully: ${user.username}`);
+          return res.json({ token, user: { id: user.id, username: user.username, email: user.email } });
         } else {
-          console.warn(`Invalid password for user: ${trimmedUsername}`);
+          console.warn(`Invalid password for user: ${user.username}`);
         }
       } else {
-        console.warn(`User not found: ${trimmedUsername}`);
+        console.warn(`User not found for identifier: ${identifier}`);
       }
     } catch (error) {
       console.error("Login Database Error:", error);
       return res.status(500).json({ error: "Internal server error during login" });
     }
     
-    res.status(401).json({ error: "Invalid credentials" });
+    res.status(401).json({ error: "Invalid credentials. Please check your username/email and password." });
   });
 
   // File Metadata Upload (Simulating Agent)
@@ -165,13 +169,13 @@ async function startServer() {
     }
 
     const insert = db.prepare(`
-      INSERT INTO files_metadata (user_id, name, path, size, hash, file_type, last_accessed)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO files_metadata (user_id, name, path, size, hash, file_type, last_accessed, content)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const transaction = db.transaction((files) => {
       for (const file of files) {
-        insert.run(userId, file.name, file.path, file.size, file.hash, file.type, file.lastAccessed);
+        insert.run(userId, file.name, file.path, file.size, file.hash, file.type, file.lastAccessed, file.content || null);
       }
     });
 
@@ -396,7 +400,9 @@ async function startServer() {
     try {
       // Get file IDs and total size first to create a backup record
       const items = db.prepare(`
-        SELECT f.id as file_id, f.name, f.size, f.file_type, f.path, f.content FROM cleanup_recommendations r
+        SELECT f.id as file_id, f.name, f.size, f.file_type, f.path, f.content, 
+               r.confidence_score, r.risk_level, r.reason
+        FROM cleanup_recommendations r
         JOIN files_metadata f ON r.file_id = f.id
         WHERE r.id IN (${placeholders})
       `).all(...itemIds) as any[];
@@ -415,13 +421,13 @@ async function startServer() {
         
         // Insert items into backup_items
         const insertBackupItem = db.prepare(`
-          INSERT INTO backup_items (backup_id, name, size, file_type, original_path, content)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO backup_items (backup_id, name, size, file_type, original_path, content, confidence_score, risk_level, reason)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         
         const archiveTransaction = db.transaction((items) => {
           for (const item of items) {
-            insertBackupItem.run(backupId, item.name, item.size, item.file_type, item.path, item.content);
+            insertBackupItem.run(backupId, item.name, item.size, item.file_type, item.path, item.content, item.confidence_score, item.risk_level, item.reason);
           }
         });
         archiveTransaction(items);
@@ -615,13 +621,14 @@ async function startServer() {
     ];
 
     const insert = db.prepare(`
-      INSERT INTO files_metadata (user_id, name, path, size, hash, file_type, last_accessed)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO files_metadata (user_id, name, path, size, hash, file_type, last_accessed, content)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const transaction = db.transaction((files) => {
       for (const file of files) {
-        insert.run(id, file.name, "Google Drive", file.size, "drive-" + Math.random(), file.type, new Date().toISOString());
+        const content = file.type === 'document' ? `Simulated cloud content for ${file.name}. This document was synchronized from Google Drive and contains important neural data patterns.` : null;
+        insert.run(id, file.name, "Google Drive", file.size, "drive-" + Math.random(), file.type, new Date().toISOString(), content);
       }
     });
     transaction(mockFiles);
@@ -632,11 +639,22 @@ async function startServer() {
   });
 
   // Manual File Upload
-  app.post("/api/upload", upload.array("files"), async (req, res) => {
+  app.post("/api/upload", (req, res, next) => {
+    upload.array("files")(req, res, (err) => {
+      if (err) {
+        console.error("Multer Error:", err);
+        return res.status(400).json({ error: err.message });
+      }
+      next();
+    });
+  }, async (req, res) => {
     const id = getUserId(req.body.userId);
     const files = req.files as Express.Multer.File[];
 
+    console.log(`Upload request received for user ID: ${id}, files: ${files?.length || 0}`);
+
     if (!id || !files || files.length === 0) {
+      console.warn("Upload failed: Missing User ID or files");
       return res.status(400).json({ error: "User ID and files required" });
     }
 
@@ -645,8 +663,8 @@ async function startServer() {
     }
 
     const insert = db.prepare(`
-      INSERT INTO files_metadata (user_id, name, path, size, hash, file_type, last_accessed)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO files_metadata (user_id, name, path, size, hash, file_type, last_accessed, content)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertRecommendation = db.prepare(`
@@ -659,11 +677,17 @@ async function startServer() {
       const transaction = db.transaction((files) => {
         for (const file of files) {
           let fileType = 'document';
+          let content = null;
+          
           if (file.mimetype.startsWith('image/')) fileType = 'image';
           else if (file.mimetype.startsWith('video/')) fileType = 'video';
           else if (file.mimetype.startsWith('audio/')) fileType = 'audio';
+          else if (file.mimetype.startsWith('text/') || file.mimetype === 'application/json' || file.mimetype === 'application/javascript') {
+            fileType = 'document';
+            content = file.buffer.toString('utf8').substring(0, 10000); // Store first 10KB
+          }
 
-          const result = insert.run(id, file.originalname, "Manual Upload", file.size, "manual-" + Date.now() + "-" + Math.random(), fileType, new Date().toISOString());
+          const result = insert.run(id, file.originalname, "Manual Upload", file.size, "manual-" + Date.now() + "-" + Math.random(), fileType, new Date().toISOString(), content);
           const fileId = result.lastInsertRowid;
 
           // Basic heuristic analysis
@@ -981,14 +1005,37 @@ async function startServer() {
 
   app.post("/api/backups", (req, res) => {
     const id = getUserId(req.body.userId);
-    const { name, size } = req.body;
+    const { name } = req.body;
     
     if (!userExists(id)) {
       return res.status(401).json({ error: "Invalid user session" });
     }
 
-    const result = db.prepare("INSERT INTO backups (user_id, name, size) VALUES (?, ?, ?)").run(id, name, size);
-    res.json({ id: result.lastInsertRowid, success: true });
+    try {
+      const files = db.prepare("SELECT * FROM files_metadata WHERE user_id = ?").all(id) as any[];
+      const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+
+      const backupResult = db.prepare("INSERT INTO backups (user_id, name, size) VALUES (?, ?, ?)").run(id, name || `Neural_Snapshot_${new Date().toISOString()}`, totalSize);
+      const backupId = backupResult.lastInsertRowid;
+
+      const insertItem = db.prepare(`
+        INSERT INTO backup_items (backup_id, name, size, file_type, original_path, content)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+
+      const snapshotTransaction = db.transaction((files) => {
+        for (const file of files) {
+          insertItem.run(backupId, file.name, file.size, file.file_type, file.path, file.content);
+        }
+      });
+
+      snapshotTransaction(files);
+
+      res.json({ id: backupId, success: true, itemCount: files.length });
+    } catch (err) {
+      console.error('Snapshot creation failed:', err);
+      res.status(500).json({ error: "Failed to create snapshot" });
+    }
   });
 
   app.get("/api/backups/:backupId/items", (req, res) => {
@@ -996,16 +1043,99 @@ async function startServer() {
     res.json(items);
   });
 
+  app.delete("/api/backups/:id", (req, res) => {
+    db.prepare("DELETE FROM backups WHERE id = ?").run(req.params.id);
+    db.prepare("DELETE FROM backup_items WHERE backup_id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/backups/:backupId/items/:itemId", (req, res) => {
+    const { backupId, itemId } = req.params;
+    try {
+      const item = db.prepare("SELECT size FROM backup_items WHERE id = ? AND backup_id = ?").get(itemId, backupId) as any;
+      if (item) {
+        db.prepare("DELETE FROM backup_items WHERE id = ? AND backup_id = ?").run(itemId, backupId);
+        db.prepare("UPDATE backups SET size = size - ? WHERE id = ?").run(item.size, backupId);
+      }
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Delete item failed:', err);
+      res.status(500).json({ error: "Failed to delete item" });
+    }
+  });
+
+  app.post("/api/backups/:backupId/items/:itemId/restore", (req, res) => {
+    const { backupId, itemId } = req.params;
+    const userId = getUserId(req.body.userId);
+
+    if (!userExists(userId)) {
+      return res.status(401).json({ error: "Invalid user session" });
+    }
+
+    try {
+      const item = db.prepare("SELECT * FROM backup_items WHERE id = ? AND backup_id = ?").get(itemId, backupId) as any;
+      if (!item) return res.status(404).json({ error: "Item not found" });
+
+      const existing = db.prepare("SELECT id FROM files_metadata WHERE user_id = ? AND path = ?").get(userId, item.original_path);
+      
+      if (existing) {
+        db.prepare(`
+          UPDATE files_metadata 
+          SET name = ?, size = ?, file_type = ?, last_accessed = CURRENT_TIMESTAMP, content = ?
+          WHERE id = ?
+        `).run(item.name, item.size, item.file_type, item.content, (existing as any).id);
+      } else {
+        db.prepare(`
+          INSERT INTO files_metadata (user_id, name, size, file_type, path, last_accessed, content)
+          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+        `).run(userId, item.name, item.size, item.file_type, item.original_path, item.content);
+      }
+
+      res.json({ success: true, message: `Restored ${item.name}` });
+    } catch (err) {
+      console.error('Item restore failed:', err);
+      res.status(500).json({ error: "Failed to restore item" });
+    }
+  });
+
   // Snapshot Integrity Check
   app.post("/api/snapshots/verify", (req, res) => {
-    const { userId } = req.body;
-    // Simulate integrity check
-    res.json({ 
-      success: true, 
-      integrityScore: 99.8, 
-      lastCheck: new Date().toISOString(),
-      status: 'verified'
-    });
+    const id = getUserId(req.body.userId);
+    if (!id) return res.status(400).json({ error: "User ID required" });
+
+    try {
+      const currentFiles = db.prepare("SELECT path FROM files_metadata WHERE user_id = ?").all(id) as any[];
+      const latestBackup = db.prepare("SELECT id FROM backups WHERE user_id = ? ORDER BY created_at DESC LIMIT 1").get(id) as any;
+      
+      let integrityScore = 100;
+      let status = 'verified';
+
+      if (!latestBackup) {
+        integrityScore = 0;
+        status = 'vulnerable';
+      } else {
+        const backedUpPaths = db.prepare("SELECT original_path FROM backup_items WHERE backup_id = ?").all(latestBackup.id) as any[];
+        const backedUpSet = new Set(backedUpPaths.map(p => p.original_path));
+        
+        const missingCount = currentFiles.filter(f => !backedUpSet.has(f.path)).length;
+        if (currentFiles.length > 0) {
+          integrityScore = Math.max(0, 100 - (missingCount / currentFiles.length) * 100);
+        }
+        
+        if (integrityScore < 90) status = 'warning';
+        if (integrityScore < 50) status = 'critical';
+      }
+
+      res.json({ 
+        success: true, 
+        integrityScore: parseFloat(integrityScore.toFixed(1)), 
+        lastCheck: new Date().toISOString(),
+        status
+      });
+    } catch (err) {
+      console.error('Verification failed:', err);
+      res.status(500).json({ error: "Failed to verify integrity" });
+    }
   });
 
   // Snapshot Restore
@@ -1024,14 +1154,37 @@ async function startServer() {
         return res.status(404).json({ error: "No items found in this snapshot" });
       }
 
-      const insertFile = db.prepare(`
-        INSERT INTO files_metadata (user_id, name, size, file_type, path, last_accessed, content)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-
       const restoreTransaction = db.transaction((items) => {
         for (const item of items) {
-          insertFile.run(id, item.name, item.size, item.file_type, item.original_path, new Date().toISOString(), item.content);
+          const existing = db.prepare("SELECT id FROM files_metadata WHERE user_id = ? AND path = ?").get(id, item.original_path);
+          let fileId: number;
+          
+          if (existing) {
+            fileId = (existing as any).id;
+            db.prepare(`
+              UPDATE files_metadata 
+              SET name = ?, size = ?, file_type = ?, last_accessed = CURRENT_TIMESTAMP, content = ?
+              WHERE id = ?
+            `).run(item.name, item.size, item.file_type, item.content, fileId);
+          } else {
+            const result = db.prepare(`
+              INSERT INTO files_metadata (user_id, name, size, file_type, path, last_accessed, content)
+              VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+            `).run(id, item.name, item.size, item.file_type, item.original_path, item.content);
+            fileId = Number(result.lastInsertRowid);
+          }
+
+          // Restore recommendation if it exists in backup
+          if (item.confidence_score !== null) {
+            // Check if recommendation already exists for this file
+            const existingRec = db.prepare("SELECT id FROM cleanup_recommendations WHERE file_id = ?").get(fileId);
+            if (!existingRec) {
+              db.prepare(`
+                INSERT INTO cleanup_recommendations (file_id, confidence_score, risk_level, reason, status)
+                VALUES (?, ?, ?, ?, 'pending')
+              `).run(fileId, item.confidence_score, item.risk_level, item.reason);
+            }
+          }
         }
       });
 
@@ -1119,6 +1272,14 @@ async function startServer() {
       );
     }
     res.json({ success: true });
+  });
+
+  // Error handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("Global Error Handler:", err);
+    res.status(err.status || 500).json({
+      error: err.message || "Internal Server Error",
+    });
   });
 
   // Vite middleware for development

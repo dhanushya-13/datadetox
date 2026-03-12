@@ -281,16 +281,17 @@ Your digital ecosystem is currently operating at **68% efficiency**. We've detec
   };
 
   return (
-    <div className="space-y-12 pb-20">
+    <div className="space-y-8 sm:space-y-12 pb-20">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="space-y-1">
-          <h1 className="text-4xl font-bold tracking-tight text-zinc-900 font-serif italic">AI Intelligence</h1>
-          <p className="text-zinc-400 font-medium text-sm tracking-wide uppercase">Neural correlation of your digital existence</p>
+          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 font-serif italic">AI Intelligence</h1>
+          <p className="text-zinc-400 font-medium text-xs sm:text-sm tracking-wide uppercase">Neural correlation of your digital existence</p>
         </div>
         <div className="flex items-center gap-4">
-          <div className="px-5 py-2.5 bg-zinc-900 text-white rounded-2xl text-[10px] font-bold tracking-widest uppercase flex items-center gap-3 shadow-xl shadow-zinc-200">
+          <div className="px-4 py-2 bg-zinc-900 text-white rounded-2xl text-[9px] sm:text-[10px] font-bold tracking-widest uppercase flex items-center gap-3 shadow-xl shadow-zinc-200">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Gemini 3.1 Pro Active
+            <span className="hidden sm:inline">Gemini 3.1 Pro Active</span>
+            <span className="sm:hidden">AI Active</span>
           </div>
         </div>
       </header>
@@ -302,17 +303,17 @@ Your digital ecosystem is currently operating at **68% efficiency**. We've detec
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="glass-card rounded-[2.5rem] p-8 bg-white relative overflow-hidden"
+            className="glass-card rounded-[2rem] sm:rounded-[2.5rem] p-6 sm:p-8 bg-white relative overflow-hidden"
           >
-            <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center justify-between mb-6 sm:mb-8">
               <div className="flex items-center gap-3">
-                <Box size={20} className="text-brand-500" />
-                <h3 className="text-sm font-bold uppercase tracking-widest">Neural Topography</h3>
+                <Box size={18} className="text-brand-500" />
+                <h3 className="text-[11px] sm:text-sm font-bold uppercase tracking-widest">Neural Topography</h3>
               </div>
-              <div className="text-xs font-bold text-muted">v4.0</div>
+              <div className="text-[9px] sm:text-xs font-bold text-muted">v4.0</div>
             </div>
             
-            <div className="h-64 w-full relative">
+            <div className="h-48 sm:h-64 w-full relative">
               <NeuralTopography data={treemapData} />
             </div>
             
@@ -427,58 +428,58 @@ Your digital ecosystem is currently operating at **68% efficiency**. We've detec
                 key="content"
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="glass-card rounded-[3rem] p-12 md:p-16 shadow-2xl shadow-zinc-200/50 border-none bg-white relative overflow-hidden h-full flex flex-col"
+                className="glass-card rounded-[2rem] sm:rounded-[3rem] p-6 sm:p-12 md:p-16 shadow-2xl shadow-zinc-200/50 border-none bg-white relative overflow-hidden h-full flex flex-col"
               >
                 {/* Background Decoration */}
-                <div className="absolute top-0 right-0 p-12 opacity-[0.02] pointer-events-none">
-                  <Wind size={500} />
+                <div className="absolute top-0 right-0 p-6 sm:p-12 opacity-[0.02] pointer-events-none">
+                  <Wind size={300} className="sm:w-[500px] sm:h-[500px]" />
                 </div>
                 <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-zinc-50 rounded-full blur-3xl opacity-50" />
 
                 <div className="flex-1">
-                  <div className="flex items-center gap-4 mb-12">
-                    <div className="w-12 h-12 bg-brand-500 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-brand-200">
-                      <Target size={24} />
+                  <div className="flex items-center gap-3 sm:gap-4 mb-8 sm:mb-12">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 bg-brand-500 rounded-xl sm:rounded-2xl flex items-center justify-center text-white shadow-xl shadow-brand-200">
+                      <Target className="w-5 h-5 sm:w-6 sm:h-6" />
                     </div>
                     <div>
-                      <h2 className="text-2xl font-bold tracking-tight font-serif italic">Neural Synthesis Report</h2>
-                      <p className="text-[10px] font-bold text-muted uppercase tracking-widest mt-1">Generated by DataDetox Core • 99.9% Confidence</p>
+                      <h2 className="text-xl sm:text-2xl font-bold tracking-tight font-serif italic">Neural Synthesis Report</h2>
+                      <p className="text-[9px] sm:text-[10px] font-bold text-muted uppercase tracking-widest mt-1">Generated by DataDetox Core • 99.9% Confidence</p>
                     </div>
                   </div>
 
                   <VisualReport analysis={analysis} data={data} />
                 </div>
                 
-                <div className="mt-20 pt-10 border-t border-zinc-100 flex flex-col sm:flex-row items-center justify-between gap-8">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-zinc-50 flex items-center justify-center text-zinc-900 border border-zinc-100">
-                      <ShieldCheck size={24} />
+                <div className="mt-12 sm:mt-20 pt-6 sm:pt-10 border-t border-zinc-100 flex flex-col sm:flex-row items-center justify-between gap-6 sm:gap-8">
+                  <div className="flex items-center gap-3 sm:gap-4">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-zinc-50 flex items-center justify-center text-zinc-900 border border-zinc-100">
+                      <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
                     </div>
                     <div>
-                      <p className="text-xs font-bold text-zinc-900 uppercase tracking-widest">Neural Integrity Verified</p>
-                      <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-widest mt-0.5">Hash: 0x7f3a...9d2e</p>
+                      <p className="text-[10px] sm:text-xs font-bold text-zinc-900 uppercase tracking-widest">Neural Integrity Verified</p>
+                      <p className="text-[8px] sm:text-[10px] font-medium text-zinc-400 uppercase tracking-widest mt-0.5">Hash: 0x7f3a...9d2e</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto">
                     <button 
                       onClick={handleDetoxClick}
                       disabled={isDetoxing}
-                      className="px-10 py-4 bg-brand-500 text-white rounded-2xl text-xs font-bold tracking-widest uppercase hover:bg-brand-600 transition-all shadow-xl shadow-brand-200 flex items-center gap-3 group disabled:opacity-50"
+                      className="flex-1 sm:flex-none px-6 sm:px-10 py-3 sm:py-4 bg-brand-500 text-white rounded-2xl text-[10px] sm:text-xs font-bold tracking-widest uppercase hover:bg-brand-600 transition-all shadow-xl shadow-brand-200 flex items-center justify-center gap-2 sm:gap-3 group disabled:opacity-50"
                     >
                       {isDetoxing ? (
-                        <RefreshCw size={16} className="animate-spin" />
+                        <RefreshCw size={14} className="animate-spin" />
                       ) : (
-                        <Zap size={16} />
+                        <Zap size={14} />
                       )}
-                      {isDetoxing ? 'Executing Detox...' : 'Execute Strategic Detox'}
-                      {!isDetoxing && <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />}
+                      {isDetoxing ? 'Executing...' : 'Execute Detox'}
+                      {!isDetoxing && <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />}
                     </button>
                     <button 
                       onClick={handleDownloadReport}
-                      className="p-4 bg-brand-50 text-brand-400 rounded-2xl hover:bg-brand-100 hover:text-brand-600 transition-all border border-brand-100" 
+                      className="p-3 sm:p-4 bg-brand-50 text-brand-400 rounded-2xl hover:bg-brand-100 hover:text-brand-600 transition-all border border-brand-100" 
                       title="Download Report"
                     >
-                      <Download size={20} />
+                      <Download className="w-[18px] h-[18px] sm:w-5 sm:h-5" />
                     </button>
                   </div>
                 </div>

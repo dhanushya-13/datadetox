@@ -186,8 +186,8 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ user, onRefres
           `;
 
           const aiResponse = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: prompt,
+            model: "gemini-flash-latest",
+            contents: [{ parts: [{ text: prompt }] }],
           });
 
           setUploadResult({
@@ -209,8 +209,14 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ user, onRefres
           if (fileInputRef.current) fileInputRef.current.value = '';
         }, 1000);
       } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Upload failed');
+        let errorMessage = 'Upload failed';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          errorMessage = `Upload failed with status ${response.status}`;
+        }
+        throw new Error(errorMessage);
       }
     } catch (error: any) {
       console.error('Upload failed:', error);
