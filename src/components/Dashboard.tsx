@@ -91,13 +91,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
           <p className="text-zinc-400 font-medium text-xs sm:text-sm tracking-wide uppercase">System Status: Optimal • Last Scan: 2m ago</p>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex -space-x-2">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="w-10 h-10 rounded-full border-2 border-white bg-brand-50 flex items-center justify-center text-[10px] font-bold text-brand-400 overflow-hidden">
-                <img src={`https://picsum.photos/seed/${i + 20}/40/40`} alt="User" referrerPolicy="no-referrer" />
-              </div>
-            ))}
-          </div>
           <button 
             onClick={handleScanClick}
             disabled={scanProgress.active}
@@ -480,18 +473,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, onScan, onTabChange,
                   <p className="text-sm font-bold truncate text-brand-700">{item.name}</p>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="text-[9px] font-bold text-brand-400 uppercase tracking-wider">{item.confidenceScore}% Match</span>
-                    <div className="w-1 h-1 rounded-full bg-brand-200" />
-                    <span className={cn(
-                       "text-[9px] font-bold uppercase tracking-wider",
-                       item.riskLevel === 'high' ? "text-red-500" : "text-accent-500"
-                    )}>{item.riskLevel} Risk</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button className="p-2 text-zinc-400 hover:text-zinc-900 transition-colors opacity-0 group-hover:opacity-100">
                     <Download size={14} />
                   </button>
-                  <ChevronRight size={14} className="text-brand-300 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
             ))}

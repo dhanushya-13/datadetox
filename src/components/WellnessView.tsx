@@ -6,7 +6,6 @@ import {
   Clock, 
   Zap, 
   ShieldCheck, 
-  ArrowRight,
   Brain,
   Focus
 } from 'lucide-react';
@@ -28,10 +27,6 @@ export const WellnessView: React.FC<WellnessViewProps> = ({ metrics }) => {
   return (
     <div className="max-w-5xl mx-auto space-y-16 pb-20">
       <header className="text-center space-y-6">
-        <div className="inline-flex items-center gap-3 px-6 py-2 bg-zinc-900 text-white rounded-full text-[10px] font-bold uppercase tracking-[0.3em] shadow-xl shadow-zinc-200">
-          <Wind size={14} />
-          Digital Wellness
-        </div>
         <h1 className="text-6xl font-bold tracking-tighter text-zinc-900 font-serif italic">Mindful Space</h1>
         <p className="text-zinc-400 max-w-2xl mx-auto text-lg font-medium leading-relaxed text-balance">
           DataDetox helps you maintain a lean, efficient, and stress-free digital environment. 
@@ -116,7 +111,6 @@ export const WellnessView: React.FC<WellnessViewProps> = ({ metrics }) => {
             </div>
             <button className="w-full py-5 bg-zinc-900 text-white rounded-2xl font-bold text-xs tracking-widest uppercase hover:bg-zinc-800 transition-all flex items-center justify-center gap-3 group shadow-2xl shadow-zinc-200">
               View Detailed Report
-              <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
             </button>
           </div>
         </div>

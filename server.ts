@@ -12,7 +12,13 @@ import multer from "multer";
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || "detox-secret-key";
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB per file
+    files: 20 // Max 20 files
+  }
+});
 
 async function startServer() {
   const app = express();
@@ -20,7 +26,8 @@ async function startServer() {
   const wss = new WebSocketServer({ server });
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
@@ -436,6 +443,9 @@ async function startServer() {
       if (fileIds.length > 0) {
         const filePlaceholders = fileIds.map(() => '?').join(',');
         
+        // Update wellness score in user_preferences
+        db.prepare("UPDATE user_preferences SET wellness_score = MIN(100, wellness_score + ?) WHERE user_id = ?").run(Math.ceil(fileIds.length / 2), id);
+
         // Find ALL recommendations for these files, not just the ones selected
         // This is necessary to avoid FK violations when deleting the files
         const allRecs = db.prepare(`
@@ -639,111 +649,113 @@ async function startServer() {
   });
 
   // Manual File Upload
-  app.post("/api/upload", (req, res, next) => {
-    upload.array("files")(req, res, (err) => {
+  app.post("/api/upload", async (req, res) => {
+    console.log("POST /api/upload - Request received");
+    upload.array("files")(req, res, async (err) => {
       if (err) {
         console.error("Multer Error:", err);
         return res.status(400).json({ error: err.message });
       }
-      next();
+
+      try {
+        const id = getUserId(req.body.userId);
+        const files = req.files as Express.Multer.File[];
+
+        console.log(`Upload processing for user ID: ${id}, files: ${files?.length || 0}`);
+
+        if (!id || !files || files.length === 0) {
+          console.warn("Upload failed: Missing User ID or files");
+          return res.status(400).json({ error: "User ID and files required" });
+        }
+
+        if (!userExists(id)) {
+          console.warn(`Upload failed: User ${id} does not exist`);
+          return res.status(401).json({ error: "Invalid user session" });
+        }
+
+        const insert = db.prepare(`
+          INSERT INTO files_metadata (user_id, name, path, size, hash, file_type, last_accessed, content)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        const insertRecommendation = db.prepare(`
+          INSERT INTO cleanup_recommendations (file_id, confidence_score, risk_level, reason)
+          VALUES (?, ?, ?, ?)
+        `);
+
+        const results: any[] = [];
+        const transaction = db.transaction((files) => {
+          for (const file of files) {
+            let fileType = 'document';
+            let content = null;
+            
+            if (file.mimetype.startsWith('image/')) fileType = 'image';
+            else if (file.mimetype.startsWith('video/')) fileType = 'video';
+            else if (file.mimetype.startsWith('audio/')) fileType = 'audio';
+            else if (file.mimetype.startsWith('text/') || file.mimetype === 'application/json' || file.mimetype === 'application/javascript') {
+              fileType = 'document';
+              content = file.buffer.toString('utf8').substring(0, 10000); // Store first 10KB
+            }
+
+            const result = insert.run(id, file.originalname, "Manual Upload", file.size, "manual-" + Date.now() + "-" + Math.random(), fileType, new Date().toISOString(), content);
+            const fileId = result.lastInsertRowid;
+
+            // Basic heuristic analysis
+            let flagged = false;
+            let reason = "";
+            let risk = "low";
+            let confidence = 0;
+
+            if (file.size > 50 * 1024 * 1024) { // > 50MB
+              flagged = true;
+              reason = "Large file detected. Consider archiving or deleting if not needed.";
+              risk = "medium";
+              confidence = 85;
+            } else if (file.originalname.includes("copy") || file.originalname.includes("(1)")) {
+              flagged = true;
+              reason = "Potential duplicate detected based on filename pattern.";
+              risk = "high";
+              confidence = 90;
+            }
+
+            if (flagged) {
+              insertRecommendation.run(fileId, confidence, risk, reason);
+              results.push({ name: file.originalname, flagged, reason, risk, size: file.size, type: fileType });
+            } else {
+              results.push({ name: file.originalname, flagged: false, size: file.size, type: fileType });
+            }
+          }
+        });
+        
+        transaction(files);
+
+        // Prepare data for frontend AI analysis
+        const fileSummary = results.map(r => `- ${r.name} (${(r.size / 1024 / 1024).toFixed(2)} MB, Type: ${r.type})${r.flagged ? ' [FLAGGED: ' + r.reason + ']' : ''}`).join('\n');
+
+        // Prepare visualization data
+        const typeDistribution = results.reduce((acc: any, r: any) => {
+          acc[r.type] = (acc[r.type] || 0) + 1;
+          return acc;
+        }, {});
+
+        db.prepare("INSERT INTO audit_logs (user_id, action, details) VALUES (?, ?, ?)")
+          .run(id, "FILES_UPLOADED", JSON.stringify({ count: files.length }));
+
+        res.json({ 
+          success: true, 
+          count: files.length, 
+          analysis: results,
+          fileSummary,
+          visualization: {
+            typeDistribution: Object.entries(typeDistribution).map(([name, value]) => ({ name, value })),
+            totalSize: results.reduce((acc, r) => acc + r.size, 0)
+          }
+        });
+      } catch (e: any) {
+        console.error("Upload Processing Error:", e);
+        res.status(500).json({ error: e.message });
+      }
     });
-  }, async (req, res) => {
-    const id = getUserId(req.body.userId);
-    const files = req.files as Express.Multer.File[];
-
-    console.log(`Upload request received for user ID: ${id}, files: ${files?.length || 0}`);
-
-    if (!id || !files || files.length === 0) {
-      console.warn("Upload failed: Missing User ID or files");
-      return res.status(400).json({ error: "User ID and files required" });
-    }
-
-    if (!userExists(id)) {
-      return res.status(401).json({ error: "Invalid user session" });
-    }
-
-    const insert = db.prepare(`
-      INSERT INTO files_metadata (user_id, name, path, size, hash, file_type, last_accessed, content)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const insertRecommendation = db.prepare(`
-      INSERT INTO cleanup_recommendations (file_id, confidence_score, risk_level, reason)
-      VALUES (?, ?, ?, ?)
-    `);
-
-    try {
-      const results: any[] = [];
-      const transaction = db.transaction((files) => {
-        for (const file of files) {
-          let fileType = 'document';
-          let content = null;
-          
-          if (file.mimetype.startsWith('image/')) fileType = 'image';
-          else if (file.mimetype.startsWith('video/')) fileType = 'video';
-          else if (file.mimetype.startsWith('audio/')) fileType = 'audio';
-          else if (file.mimetype.startsWith('text/') || file.mimetype === 'application/json' || file.mimetype === 'application/javascript') {
-            fileType = 'document';
-            content = file.buffer.toString('utf8').substring(0, 10000); // Store first 10KB
-          }
-
-          const result = insert.run(id, file.originalname, "Manual Upload", file.size, "manual-" + Date.now() + "-" + Math.random(), fileType, new Date().toISOString(), content);
-          const fileId = result.lastInsertRowid;
-
-          // Basic heuristic analysis
-          let flagged = false;
-          let reason = "";
-          let risk = "low";
-          let confidence = 0;
-
-          if (file.size > 50 * 1024 * 1024) { // > 50MB
-            flagged = true;
-            reason = "Large file detected. Consider archiving or deleting if not needed.";
-            risk = "medium";
-            confidence = 85;
-          } else if (file.originalname.includes("copy") || file.originalname.includes("(1)")) {
-            flagged = true;
-            reason = "Potential duplicate detected based on filename pattern.";
-            risk = "high";
-            confidence = 90;
-          }
-
-          if (flagged) {
-            insertRecommendation.run(fileId, confidence, risk, reason);
-            results.push({ name: file.originalname, flagged, reason, risk, size: file.size, type: fileType });
-          } else {
-            results.push({ name: file.originalname, flagged: false, size: file.size, type: fileType });
-          }
-        }
-      });
-      transaction(files);
-
-      // Prepare data for frontend AI analysis
-      const fileSummary = results.map(r => `- ${r.name} (${(r.size / 1024 / 1024).toFixed(2)} MB, Type: ${r.type})${r.flagged ? ' [FLAGGED: ' + r.reason + ']' : ''}`).join('\n');
-
-      // Prepare visualization data
-      const typeDistribution = results.reduce((acc: any, r: any) => {
-        acc[r.type] = (acc[r.type] || 0) + 1;
-        return acc;
-      }, {});
-
-      db.prepare("INSERT INTO audit_logs (user_id, action, details) VALUES (?, ?, ?)")
-        .run(id, "FILES_UPLOADED", JSON.stringify({ count: files.length }));
-
-      res.json({ 
-        success: true, 
-        count: files.length, 
-        analysis: results,
-        fileSummary, // Send summary to frontend for AI analysis
-        visualization: {
-          typeDistribution: Object.entries(typeDistribution).map(([name, value]) => ({ name, value })),
-          totalSize: results.reduce((acc, r) => acc + r.size, 0)
-        }
-      });
-    } catch (e: any) {
-      console.error("Upload Error:", e);
-      res.status(500).json({ error: e.message });
-    }
   });
 
   // Google Drive OAuth (Simulated/Mock fallback)
@@ -1012,20 +1024,27 @@ async function startServer() {
     }
 
     try {
-      const files = db.prepare("SELECT * FROM files_metadata WHERE user_id = ?").all(id) as any[];
+      // Get files and their recommendations if they exist
+      const files = db.prepare(`
+        SELECT f.*, r.confidence_score, r.risk_level, r.reason
+        FROM files_metadata f
+        LEFT JOIN cleanup_recommendations r ON f.id = r.file_id
+        WHERE f.user_id = ?
+      `).all(id) as any[];
+
       const totalSize = files.reduce((acc, f) => acc + f.size, 0);
 
       const backupResult = db.prepare("INSERT INTO backups (user_id, name, size) VALUES (?, ?, ?)").run(id, name || `Neural_Snapshot_${new Date().toISOString()}`, totalSize);
       const backupId = backupResult.lastInsertRowid;
 
       const insertItem = db.prepare(`
-        INSERT INTO backup_items (backup_id, name, size, file_type, original_path, content)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO backup_items (backup_id, name, size, file_type, original_path, content, confidence_score, risk_level, reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const snapshotTransaction = db.transaction((files) => {
         for (const file of files) {
-          insertItem.run(backupId, file.name, file.size, file.file_type, file.path, file.content);
+          insertItem.run(backupId, file.name, file.size, file.file_type, file.path, file.content, file.confidence_score, file.risk_level, file.reason);
         }
       });
 
@@ -1044,9 +1063,24 @@ async function startServer() {
   });
 
   app.delete("/api/backups/:id", (req, res) => {
-    db.prepare("DELETE FROM backups WHERE id = ?").run(req.params.id);
-    db.prepare("DELETE FROM backup_items WHERE backup_id = ?").run(req.params.id);
-    res.json({ success: true });
+    const { id } = req.params;
+    const userId = req.query.userId;
+    
+    try {
+      if (userId) {
+        const backup = db.prepare("SELECT id FROM backups WHERE id = ? AND user_id = ?").get(id, userId);
+        if (!backup) return res.status(403).json({ error: "Unauthorized or backup not found" });
+      }
+
+      db.prepare("DELETE FROM backups WHERE id = ?").run(id);
+      db.prepare("DELETE FROM backup_items WHERE backup_id = ?").run(id);
+      
+      console.log(`Backup ${id} deleted successfully`);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Delete backup failed:', err);
+      res.status(500).json({ error: "Failed to delete backup" });
+    }
   });
 
   app.delete("/api/backups/:backupId/items/:itemId", (req, res) => {
@@ -1077,19 +1111,40 @@ async function startServer() {
       if (!item) return res.status(404).json({ error: "Item not found" });
 
       const existing = db.prepare("SELECT id FROM files_metadata WHERE user_id = ? AND path = ?").get(userId, item.original_path);
+      let fileId: number;
       
       if (existing) {
+        fileId = (existing as any).id;
         db.prepare(`
           UPDATE files_metadata 
           SET name = ?, size = ?, file_type = ?, last_accessed = CURRENT_TIMESTAMP, content = ?
           WHERE id = ?
-        `).run(item.name, item.size, item.file_type, item.content, (existing as any).id);
+        `).run(item.name, item.size, item.file_type, item.content, fileId);
       } else {
-        db.prepare(`
+        const result = db.prepare(`
           INSERT INTO files_metadata (user_id, name, size, file_type, path, last_accessed, content)
           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
         `).run(userId, item.name, item.size, item.file_type, item.original_path, item.content);
+        fileId = Number(result.lastInsertRowid);
       }
+
+      // Ensure recommendation exists so it shows up in Cleanup Center
+      const existingRec = db.prepare("SELECT id FROM cleanup_recommendations WHERE file_id = ?").get(fileId);
+      if (!existingRec) {
+        db.prepare(`
+          INSERT INTO cleanup_recommendations (file_id, confidence_score, risk_level, reason, status)
+          VALUES (?, ?, ?, ?, 'pending')
+        `).run(
+          fileId, 
+          item.confidence_score !== null ? item.confidence_score : 85, 
+          item.risk_level !== null ? item.risk_level : 'medium', 
+          item.reason !== null ? item.reason : 'Restored from neural snapshot'
+        );
+      }
+
+      // Record trend after restore
+      const totalUsed = db.prepare("SELECT SUM(size) as total FROM files_metadata WHERE user_id = ?").get(userId) as any;
+      db.prepare("INSERT INTO storage_trends (user_id, total_used_size) VALUES (?, ?)").run(userId, totalUsed.total || 0);
 
       res.json({ success: true, message: `Restored ${item.name}` });
     } catch (err) {
@@ -1174,16 +1229,19 @@ async function startServer() {
             fileId = Number(result.lastInsertRowid);
           }
 
-          // Restore recommendation if it exists in backup
-          if (item.confidence_score !== null) {
-            // Check if recommendation already exists for this file
-            const existingRec = db.prepare("SELECT id FROM cleanup_recommendations WHERE file_id = ?").get(fileId);
-            if (!existingRec) {
-              db.prepare(`
-                INSERT INTO cleanup_recommendations (file_id, confidence_score, risk_level, reason, status)
-                VALUES (?, ?, ?, ?, 'pending')
-              `).run(fileId, item.confidence_score, item.risk_level, item.reason);
-            }
+          // Restore recommendation if it exists in backup, or create a default one
+          // Check if recommendation already exists for this file
+          const existingRec = db.prepare("SELECT id FROM cleanup_recommendations WHERE file_id = ?").get(fileId);
+          if (!existingRec) {
+            db.prepare(`
+              INSERT INTO cleanup_recommendations (file_id, confidence_score, risk_level, reason, status)
+              VALUES (?, ?, ?, ?, 'pending')
+            `).run(
+              fileId, 
+              item.confidence_score !== null ? item.confidence_score : 0.85, 
+              item.risk_level !== null ? item.risk_level : 'medium', 
+              item.reason !== null ? item.reason : 'Restored from neural snapshot'
+            );
           }
         }
       });

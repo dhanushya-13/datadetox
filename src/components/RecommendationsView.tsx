@@ -2,7 +2,6 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Lightbulb, 
-  ArrowRight, 
   CheckCircle2, 
   AlertCircle, 
   Zap, 
@@ -10,8 +9,7 @@ import {
   Trash2, 
   Sparkles,
   RefreshCw,
-  Clock,
-  ChevronRight
+  Clock
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { DashboardData, StorageItem } from '../types';
@@ -138,8 +136,7 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({ data }
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {[1, 2, 3, 4].map(i => (
-            <div key={i} className="h-64 bg-white rounded-3xl border border-zinc-100 animate-pulse p-8 space-y-4">
-              <div className="w-12 h-12 bg-zinc-50 rounded-2xl" />
+            <div key={i} className="h-48 bg-white rounded-3xl border border-zinc-100 animate-pulse p-8 space-y-4">
               <div className="h-6 bg-zinc-50 rounded-full w-3/4" />
               <div className="h-4 bg-zinc-50 rounded-full w-full" />
               <div className="h-4 bg-zinc-50 rounded-full w-5/6" />
@@ -174,26 +171,6 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({ data }
                 transition={{ delay: index * 0.1 }}
                 className="group relative bg-white rounded-[2rem] border border-zinc-100 p-8 hover:shadow-2xl hover:shadow-zinc-200/50 transition-all duration-500 flex flex-col"
               >
-                <div className="flex items-start justify-between mb-6">
-                  <div className={cn(
-                    "w-14 h-14 rounded-2xl flex items-center justify-center transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3",
-                    rec.category === 'storage' ? "bg-rose-50 text-rose-600" :
-                    rec.category === 'privacy' ? "bg-indigo-50 text-indigo-600" :
-                    rec.category === 'organization' ? "bg-emerald-50 text-emerald-600" :
-                    "bg-amber-50 text-amber-600"
-                  )}>
-                    {rec.icon}
-                  </div>
-                  <div className={cn(
-                    "px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest",
-                    rec.impact === 'high' ? "bg-rose-100 text-rose-700" :
-                    rec.impact === 'medium' ? "bg-amber-100 text-amber-700" :
-                    "bg-zinc-100 text-zinc-600"
-                  )}>
-                    {rec.impact} Impact
-                  </div>
-                </div>
-
                 <div className="flex-1 space-y-3">
                   <h3 className="text-2xl font-bold tracking-tight text-zinc-900 group-hover:text-brand-600 transition-colors">
                     {rec.title}
@@ -202,48 +179,9 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({ data }
                     {rec.description}
                   </p>
                 </div>
-
-                <div className="mt-8 pt-8 border-t border-zinc-50 flex items-center justify-between">
-                  <button className="flex items-center gap-2 text-zinc-900 font-bold hover:gap-4 transition-all group/btn">
-                    <span>{rec.actionLabel}</span>
-                    <ArrowRight size={18} className="text-zinc-400 group-hover/btn:text-zinc-900 transition-colors" />
-                  </button>
-                  <div className="flex items-center gap-2 text-zinc-300">
-                    <Clock size={14} />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">Est. 2 mins</span>
-                  </div>
-                </div>
               </motion.div>
             ))}
           </AnimatePresence>
-
-          {/* Refresh Card */}
-          <motion.button
-            onClick={generateRecommendations}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="md:col-span-2 bg-zinc-900 rounded-[2rem] p-12 text-white flex flex-col md:flex-row items-center justify-between gap-8 group overflow-hidden relative"
-          >
-            <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl group-hover:bg-white/10 transition-colors" />
-            
-            <div className="relative z-10 text-center md:text-left space-y-2">
-              <h3 className="text-3xl font-bold tracking-tighter">Need more insights?</h3>
-              <p className="text-zinc-400 font-medium">Recalibrate the neural engine for fresh recommendations</p>
-            </div>
-            
-            <div className="relative z-10 flex items-center gap-4">
-              <div className="flex -space-x-3">
-                {[1, 2, 3].map(i => (
-                  <div key={i} className="w-10 h-10 rounded-full border-2 border-zinc-900 bg-zinc-800 flex items-center justify-center overflow-hidden">
-                    <img src={`https://picsum.photos/seed/${i + 10}/40/40`} alt="User" referrerPolicy="no-referrer" />
-                  </div>
-                ))}
-              </div>
-              <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-zinc-900 group-hover:rotate-180 transition-transform duration-700">
-                <RefreshCw size={24} />
-              </div>
-            </div>
-          </motion.button>
         </div>
       )}
     </div>

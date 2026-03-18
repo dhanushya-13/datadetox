@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Shield, Check, ArrowRight, Lock, Eye, FileText, Camera, Video, Mail } from 'lucide-react';
+import { Shield, Check, Lock, Eye, FileText, Camera, Video, Mail } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiFetch } from '../lib/api';
 
@@ -106,7 +106,6 @@ export const AccessControlView: React.FC<AccessControlViewProps> = ({ userId, on
             className="w-full py-6 bg-zinc-900 text-white rounded-[2rem] font-bold text-sm tracking-widest uppercase hover:bg-zinc-800 transition-all shadow-2xl shadow-zinc-300 flex items-center justify-center gap-3 group"
           >
             {loading ? 'Configuring Neural Link...' : 'Grant Access & Start Detox'}
-            {!loading && <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />}
           </button>
           
           <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-zinc-300 uppercase tracking-[0.3em]">

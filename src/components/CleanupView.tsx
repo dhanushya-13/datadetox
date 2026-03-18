@@ -13,7 +13,6 @@ import {
   File,
   Archive, 
   AlertTriangle,
-  ChevronRight,
   Search,
   ShieldCheck,
   PlayCircle,

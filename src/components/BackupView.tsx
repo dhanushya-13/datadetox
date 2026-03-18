@@ -36,6 +36,13 @@ export const BackupView: React.FC<BackupViewProps> = ({ onRefresh }) => {
   const [isSyncing, setIsSyncing] = React.useState(false);
   const [lastCloudSync, setLastCloudSync] = React.useState<string | null>(null);
   const [viewingItem, setViewingItem] = React.useState<BackupItem | null>(null);
+  const [notification, setNotification] = React.useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [confirmDelete, setConfirmDelete] = React.useState<number | null>(null);
+
+  const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000);
+  };
 
   const fetchBackups = async () => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -65,10 +72,10 @@ export const BackupView: React.FC<BackupViewProps> = ({ onRefresh }) => {
         }),
       });
       await fetchBackups();
-      alert('Neural Snapshot created successfully.');
+      showNotification('Neural Snapshot created successfully.');
     } catch (err) {
       console.error('Failed to create backup:', err);
-      alert('Failed to create snapshot.');
+      showNotification('Failed to create snapshot.', 'error');
     } finally {
       setIsCreating(false);
     }
@@ -83,9 +90,10 @@ export const BackupView: React.FC<BackupViewProps> = ({ onRefresh }) => {
         body: JSON.stringify({ userId: user.id }),
       });
       setLastIntegrityCheck(new Date(result.lastCheck).toLocaleString());
-      alert(`Neural Integrity Check Complete: System state is ${result.integrityScore}% consistent. Status: ${result.status.toUpperCase()}`);
+      showNotification(`Neural Integrity Check Complete: System state is ${result.integrityScore}% consistent.`);
     } catch (err) {
       console.error('Verification failed:', err);
+      showNotification('Integrity check failed.', 'error');
     } finally {
       setIsVerifying(false);
     }
@@ -100,9 +108,10 @@ export const BackupView: React.FC<BackupViewProps> = ({ onRefresh }) => {
         body: JSON.stringify({ userId: user.id }),
       });
       setLastCloudSync(new Date().toLocaleString());
-      alert('Cloud Sync Complete: All snapshots synchronized with connected providers.');
+      showNotification('Cloud Sync Complete: Snapshots synchronized.');
     } catch (err) {
       console.error('Sync failed:', err);
+      showNotification('Cloud sync failed.', 'error');
     } finally {
       setIsSyncing(false);
     }
@@ -110,91 +119,110 @@ export const BackupView: React.FC<BackupViewProps> = ({ onRefresh }) => {
 
   const handleRestore = async (snapshotId: number) => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
-    if (!confirm('Are you sure you want to restore your system to this snapshot? Current unsaved changes will be lost.')) return;
     
     try {
       const result = await apiFetch<any>('/api/snapshots/restore', {
         method: 'POST',
         body: JSON.stringify({ userId: user.id, snapshotId }),
       });
-      alert(result.message || 'System state restored successfully.');
+      showNotification(result.message || 'System state restored successfully. Files are now available in your Cleanup Center.');
       if (onRefresh) {
         await onRefresh();
       } else {
-        window.location.reload();
+        await fetchBackups();
       }
     } catch (err) {
       console.error('Restore failed:', err);
+      showNotification('Failed to restore snapshot.', 'error');
     }
   };
 
   const handleDeleteSnapshot = async (snapshotId: number) => {
-    if (!confirm('Are you sure you want to permanently delete this snapshot? This action cannot be undone.')) return;
-    
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
     try {
-      await apiFetch(`/api/backups/${snapshotId}`, {
+      await apiFetch(`/api/backups/${snapshotId}?userId=${user.id}`, {
         method: 'DELETE',
       });
       await fetchBackups();
-      alert('Snapshot deleted successfully.');
+      showNotification('Snapshot permanently deleted from history.');
+      setConfirmDelete(null);
     } catch (err) {
       console.error('Delete failed:', err);
-      alert('Failed to delete snapshot.');
+      showNotification('Failed to delete snapshot.', 'error');
     }
   };
 
-  const handleDownloadSnapshot = (backup: Backup) => {
-    const data = JSON.stringify(backup, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${backup.name}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    alert('Snapshot download initiated.');
+  const handleDownloadSnapshot = async (backup: Backup) => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    try {
+      // 1. Process for Cleanup Center (as requested)
+      await apiFetch<any>('/api/snapshots/restore', {
+        method: 'POST',
+        body: JSON.stringify({ userId: user.id, snapshotId: backup.id }),
+      });
+
+      // 2. Trigger actual browser download of the metadata
+      const items = await apiFetch<any[]>(`/api/backups/${backup.id}/items`);
+      const exportData = {
+        snapshot: backup,
+        items: items,
+        exportedAt: new Date().toISOString()
+      };
+      
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${backup.name.replace(/\s+/g, '_')}_export.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      showNotification(`Snapshot "${backup.name}" processed and downloaded.`);
+      if (onRefresh) {
+        await onRefresh();
+      } else {
+        await fetchBackups();
+      }
+    } catch (err) {
+      console.error('Download/Restore failed:', err);
+      showNotification('Failed to process snapshot download.', 'error');
+    }
   };
 
   const handleDeleteItem = async (backupId: number, itemId: number) => {
-    if (!confirm('Are you sure you want to remove this item from the snapshot?')) return;
-    
     try {
       await apiFetch(`/api/backups/${backupId}/items/${itemId}`, {
         method: 'DELETE',
       });
-      // Refresh all backups to get updated sizes and items
       await fetchBackups();
-      // Re-expand the backup that was just modified
       setBackups(prev => prev.map(b => 
         b.id === backupId ? { ...b, isExpanded: true } : b
       ));
-      alert('Item removed from snapshot.');
+      showNotification('Item removed from snapshot.');
     } catch (err) {
       console.error('Delete item failed:', err);
-      alert('Failed to remove item.');
+      showNotification('Failed to remove item.', 'error');
     }
   };
 
   const handleRestoreItem = async (backupId: number, itemId: number) => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
-    if (!confirm('Restore this specific item? If it exists, it will be overwritten.')) return;
     
     try {
       await apiFetch(`/api/backups/${backupId}/items/${itemId}/restore`, {
         method: 'POST',
         body: JSON.stringify({ userId: user.id }),
       });
-      alert('Item restored successfully.');
+      showNotification('Item restored successfully. It is now available in your Cleanup Center.');
       if (onRefresh) {
         await onRefresh();
-      } else {
-        window.location.reload();
       }
+      await fetchBackups();
     } catch (err) {
       console.error('Restore item failed:', err);
-      alert('Failed to restore item.');
+      showNotification('Failed to restore item.', 'error');
     }
   };
 
@@ -379,7 +407,7 @@ export const BackupView: React.FC<BackupViewProps> = ({ onRefresh }) => {
                         <RotateCcw size={18} />
                       </button>
                       <button 
-                        onClick={() => handleDeleteSnapshot(backup.id)}
+                        onClick={() => setConfirmDelete(backup.id)}
                         className="p-2 text-zinc-400 hover:text-rose-600 transition-colors"
                         title="Delete Snapshot"
                       >
@@ -460,6 +488,69 @@ export const BackupView: React.FC<BackupViewProps> = ({ onRefresh }) => {
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className={cn(
+              "fixed bottom-8 right-8 z-[200] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border backdrop-blur-md",
+              notification.type === 'success' 
+                ? "bg-emerald-500/90 text-white border-emerald-400" 
+                : "bg-rose-500/90 text-white border-rose-400"
+            )}
+          >
+            {notification.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+            <p className="text-sm font-bold tracking-tight">{notification.message}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {confirmDelete && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setConfirmDelete(null)}
+              className="absolute inset-0 bg-zinc-900/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl p-8 space-y-6"
+            >
+              <div className="w-16 h-16 bg-rose-50 rounded-2xl flex items-center justify-center text-rose-600 mx-auto">
+                <Trash2 size={32} />
+              </div>
+              <div className="text-center space-y-2">
+                <h3 className="text-xl font-bold tracking-tight">Delete Snapshot?</h3>
+                <p className="text-sm text-zinc-500 leading-relaxed">
+                  This action is permanent and cannot be undone. The snapshot will be removed from your history.
+                </p>
+              </div>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setConfirmDelete(null)}
+                  className="flex-1 px-6 py-3 bg-zinc-100 text-zinc-900 rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-zinc-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleDeleteSnapshot(confirmDelete)}
+                  className="flex-1 px-6 py-3 bg-rose-600 text-white rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-rose-700 transition-all shadow-xl shadow-rose-200"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {viewingItem && (

@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Wind, ArrowRight, Lock, User, Sparkles, CheckCircle2, Mail, Eye, EyeOff } from 'lucide-react';
+import { Wind, Lock, User, Sparkles, CheckCircle2, Mail, Eye, EyeOff } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiFetch } from '../lib/api';
 
@@ -213,7 +213,6 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             className="w-full py-5 bg-zinc-900 text-white rounded-2xl font-bold text-xs tracking-widest uppercase hover:bg-zinc-800 transition-all shadow-2xl shadow-zinc-200 flex items-center justify-center gap-3 group"
           >
             {loading ? 'Authenticating...' : isLogin ? 'Sign In' : 'Create Account'}
-            {!loading && <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />}
           </button>
 
           <div className="relative py-4">

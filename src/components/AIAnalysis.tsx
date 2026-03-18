@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Sparkles, 
@@ -59,40 +59,32 @@ interface AIAnalysisProps {
   onDetox?: (itemIds: string[]) => Promise<void>;
 }
 
-const VisualReport: React.FC<{ analysis: string | null; data: DashboardData }> = ({ analysis, data }) => {
+const VisualReport: React.FC<{ analysis: string | null; data: DashboardData; treemapData: any[] }> = ({ analysis, data, treemapData }) => {
   if (!analysis) return null;
 
   // Generate deterministic but unique visualizations based on data
   const seed = data.wellnessScore;
   
-  const treemapData = [
-    { name: 'Media', size: 4500, fill: '#f43f5e' },
-    { name: 'Work', size: 3000, fill: '#10b981' },
-    { name: 'System', size: 1500, fill: '#6366f1' },
-    { name: 'Archives', size: 2000, fill: '#f59e0b' },
-    { name: 'Temp', size: 800, fill: '#94a3b8' },
-  ];
-
-  const funnelData = [
+  const funnelData = useMemo(() => [
     { value: 100, name: 'Total Data', fill: '#f4f4f5' },
-    { value: 90 - (seed / 2), name: 'Redundant', fill: '#fbbf24' },
-    { value: 70 - (seed / 3), name: 'Flagged', fill: '#f87171' },
-    { value: 100 - seed, name: 'Detoxed', fill: '#10b981' },
-  ];
+    { value: Math.max(10, 90 - (seed / 2)), name: 'Redundant', fill: '#fbbf24' },
+    { value: Math.max(5, 70 - (seed / 3)), name: 'Flagged', fill: '#f87171' },
+    { value: Math.min(100, 100 - seed), name: 'Detoxed', fill: '#10b981' },
+  ], [seed]);
 
-  const entropyData = data.trends.slice(-7).map((t, i) => ({
-    name: i.toString(),
+  const entropyData = useMemo(() => data.trends.slice(-7).map((t, i) => ({
+    name: new Date(t.timestamp).toLocaleDateString(undefined, { weekday: 'short' }),
     storage: t.size / (1024**3),
     entropy: (t.size / (1024**3)) * (0.5 + Math.sin(seed + i) * 0.2)
-  }));
+  })), [data.trends, seed]);
 
-  const radarData = [
-    { subject: 'Efficiency', A: seed + 10, fullMark: 100 },
-    { subject: 'Organization', A: seed - 5, fullMark: 100 },
-    { subject: 'Security', A: 90 + (seed % 10), fullMark: 100 },
-    { subject: 'Performance', A: seed + 5, fullMark: 100 },
+  const radarData = useMemo(() => [
+    { subject: 'Efficiency', A: Math.min(100, seed + 10), fullMark: 100 },
+    { subject: 'Organization', A: Math.max(0, seed - 5), fullMark: 100 },
+    { subject: 'Security', A: Math.min(100, 90 + (seed % 10)), fullMark: 100 },
+    { subject: 'Performance', A: Math.min(100, seed + 5), fullMark: 100 },
     { subject: 'Wellness', A: seed, fullMark: 100 },
-  ];
+  ], [seed]);
 
   return (
     <div className="space-y-12">
@@ -168,9 +160,9 @@ const VisualReport: React.FC<{ analysis: string | null; data: DashboardData }> =
             <Sparkles size={20} className="text-brand-400" />
             <h3 className="text-sm font-bold uppercase tracking-widest">Executive Summary</h3>
           </div>
-          <p className="text-lg font-medium leading-relaxed text-zinc-300 italic font-serif">
-            "Your digital ecosystem is currently operating at 68% efficiency. We've detected significant 'Digital Friction' caused by high-density media clusters and fragmented project archives."
-          </p>
+          <div className="prose prose-invert max-w-none prose-p:text-lg prose-p:font-medium prose-p:leading-relaxed prose-p:text-zinc-300 prose-p:italic prose-p:font-serif">
+            <Markdown>{analysis}</Markdown>
+          </div>
         </div>
       </div>
     </div>
@@ -225,47 +217,66 @@ Your digital ecosystem is currently operating at **68% efficiency**. We've detec
     generateReport();
   }, [onAnalyze]);
 
-  const treemapData = [
-    { name: 'Media', size: 4500, fill: '#f43f5e' },
-    { name: 'Work', size: 3000, fill: '#10b981' },
-    { name: 'System', size: 1500, fill: '#6366f1' },
-    { name: 'Archives', size: 2000, fill: '#f59e0b' },
-    { name: 'Temp', size: 800, fill: '#94a3b8' },
-  ];
+  const treemapData = useMemo(() => {
+    const categories: Record<string, { size: number; fill: string }> = {
+      'media': { size: 0, fill: '#f43f5e' },
+      'work': { size: 0, fill: '#10b981' },
+      'system': { size: 0, fill: '#6366f1' },
+      'archives': { size: 0, fill: '#f59e0b' },
+      'temp': { size: 0, fill: '#94a3b8' },
+      'other': { size: 0, fill: '#71717a' },
+    };
 
-  const categoryData = [
-    { name: 'Media', value: 45 },
-    { name: 'Work', value: 30 },
-    { name: 'System', value: 15 },
-    { name: 'Other', value: 10 },
-  ];
+    data.items.forEach(item => {
+      const cat = item.category?.toLowerCase() || 'other';
+      if (categories[cat]) {
+        categories[cat].size += item.size;
+      } else {
+        categories['other'].size += item.size;
+      }
+    });
 
-  const insights = [
-    { 
-      title: "Digital Hoarding Pattern", 
-      desc: "Detected 12GB of redundant project versions.", 
-      details: "Our neural engine identified multiple iterations of the same project files across different directories. This pattern suggests a 'save-as' workflow that hasn't been pruned in over 180 days. Consolidation could reclaim 12.4GB of high-speed storage.",
-      icon: AlertTriangle, 
-      color: "text-amber-500",
-      bg: "bg-amber-50"
-    },
-    { 
-      title: "Neural Efficiency", 
-      desc: "System focus is currently at 72% of potential.", 
-      details: "Your cognitive load is impacted by 4,293 unindexed files. By implementing our recommended 'Neural Reset' protocol, we estimate a 15% increase in system responsiveness and a significant reduction in visual clutter.",
-      icon: Zap, 
-      color: "text-emerald-500",
-      bg: "bg-emerald-50"
-    },
-    { 
-      title: "Entropy Alert", 
-      desc: "Storage fragmentation is increasing in the Media sector.", 
-      details: "High-density video clusters are currently fragmented across 4 different partitions. This creates 'Digital Friction' during retrieval. We recommend a unified media archive strategy to stabilize the entropy levels.",
-      icon: Activity, 
-      color: "text-red-500",
-      bg: "bg-red-50"
-    }
-  ];
+    return Object.entries(categories)
+      .filter(([_, val]) => val.size > 0)
+      .map(([name, val]) => ({
+        name: name.charAt(0).toUpperCase() + name.slice(1),
+        size: val.size / (1024 * 1024), // MB for visualization
+        fill: val.fill
+      }));
+  }, [data.items]);
+
+  const insights = useMemo(() => {
+    const seed = data.wellnessScore;
+    const redundantSize = data.items.filter(i => i.isDuplicate).reduce((acc, i) => acc + i.size, 0);
+    const redundantGB = (redundantSize / (1024**3)).toFixed(1);
+    
+    return [
+      { 
+        title: "Digital Hoarding Pattern", 
+        desc: `Detected ${redundantGB}GB of redundant project versions.`, 
+        details: `Our neural engine identified multiple iterations of the same project files across different directories. This pattern suggests a 'save-as' workflow that hasn't been pruned in over 180 days. Consolidation could reclaim ${redundantGB}GB of high-speed storage.`,
+        icon: AlertTriangle, 
+        color: "text-amber-500",
+        bg: "bg-amber-50"
+      },
+      { 
+        title: "Neural Efficiency", 
+        desc: `System focus is currently at ${seed}% of potential.`, 
+        details: `Your cognitive load is impacted by ${data.items.length} unindexed files. By implementing our recommended 'Neural Reset' protocol, we estimate a 15% increase in system responsiveness and a significant reduction in visual clutter.`,
+        icon: Zap, 
+        color: "text-emerald-500",
+        bg: "bg-emerald-50"
+      },
+      { 
+        title: "Entropy Alert", 
+        desc: "Storage fragmentation is increasing in the Media sector.", 
+        details: "High-density video clusters are currently fragmented across 4 different partitions. This creates 'Digital Friction' during retrieval. We recommend a unified media archive strategy to stabilize the entropy levels.",
+        icon: Activity, 
+        color: "text-red-500",
+        bg: "bg-red-50"
+      }
+    ];
+  }, [data.items, data.wellnessScore]);
 
   const handleDownloadReport = () => {
     if (!analysis) return;
@@ -378,14 +389,6 @@ Your digital ecosystem is currently operating at **68% efficiency**. We've detec
                       )}
                     </AnimatePresence>
                   </div>
-                  <motion.div
-                    animate={{ rotate: expandedInsight === idx ? 90 : 0 }}
-                  >
-                    <ArrowRight size={14} className={cn(
-                      "mt-1 transition-transform group-hover:translate-x-1",
-                      expandedInsight === idx ? "text-white" : "text-zinc-300"
-                    )} />
-                  </motion.div>
                 </div>
               </motion.div>
             ))}
@@ -405,9 +408,6 @@ Your digital ecosystem is currently operating at **68% efficiency**. We've detec
               >
                 <div className="relative">
                   <div className="w-32 h-32 border-4 border-brand-50 border-t-brand-500 rounded-full animate-spin" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Cpu size={40} className="text-brand-500 animate-pulse" />
-                  </div>
                 </div>
                 <div className="space-y-2">
                   <h3 className="text-2xl font-bold tracking-tight font-serif italic">Synthesizing Intelligence</h3>
@@ -430,31 +430,21 @@ Your digital ecosystem is currently operating at **68% efficiency**. We've detec
                 animate={{ opacity: 1, scale: 1 }}
                 className="glass-card rounded-[2rem] sm:rounded-[3rem] p-6 sm:p-12 md:p-16 shadow-2xl shadow-zinc-200/50 border-none bg-white relative overflow-hidden h-full flex flex-col"
               >
-                {/* Background Decoration */}
-                <div className="absolute top-0 right-0 p-6 sm:p-12 opacity-[0.02] pointer-events-none">
-                  <Wind size={300} className="sm:w-[500px] sm:h-[500px]" />
-                </div>
                 <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-zinc-50 rounded-full blur-3xl opacity-50" />
 
                 <div className="flex-1">
                   <div className="flex items-center gap-3 sm:gap-4 mb-8 sm:mb-12">
-                    <div className="w-10 h-10 sm:w-12 sm:h-12 bg-brand-500 rounded-xl sm:rounded-2xl flex items-center justify-center text-white shadow-xl shadow-brand-200">
-                      <Target className="w-5 h-5 sm:w-6 sm:h-6" />
-                    </div>
                     <div>
                       <h2 className="text-xl sm:text-2xl font-bold tracking-tight font-serif italic">Neural Synthesis Report</h2>
                       <p className="text-[9px] sm:text-[10px] font-bold text-muted uppercase tracking-widest mt-1">Generated by DataDetox Core • 99.9% Confidence</p>
                     </div>
                   </div>
 
-                  <VisualReport analysis={analysis} data={data} />
+                  <VisualReport analysis={analysis} data={data} treemapData={treemapData} />
                 </div>
                 
                 <div className="mt-12 sm:mt-20 pt-6 sm:pt-10 border-t border-zinc-100 flex flex-col sm:flex-row items-center justify-between gap-6 sm:gap-8">
                   <div className="flex items-center gap-3 sm:gap-4">
-                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-zinc-50 flex items-center justify-center text-zinc-900 border border-zinc-100">
-                      <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
-                    </div>
                     <div>
                       <p className="text-[10px] sm:text-xs font-bold text-zinc-900 uppercase tracking-widest">Neural Integrity Verified</p>
                       <p className="text-[8px] sm:text-[10px] font-medium text-zinc-400 uppercase tracking-widest mt-0.5">Hash: 0x7f3a...9d2e</p>
@@ -466,13 +456,7 @@ Your digital ecosystem is currently operating at **68% efficiency**. We've detec
                       disabled={isDetoxing}
                       className="flex-1 sm:flex-none px-6 sm:px-10 py-3 sm:py-4 bg-brand-500 text-white rounded-2xl text-[10px] sm:text-xs font-bold tracking-widest uppercase hover:bg-brand-600 transition-all shadow-xl shadow-brand-200 flex items-center justify-center gap-2 sm:gap-3 group disabled:opacity-50"
                     >
-                      {isDetoxing ? (
-                        <RefreshCw size={14} className="animate-spin" />
-                      ) : (
-                        <Zap size={14} />
-                      )}
                       {isDetoxing ? 'Executing...' : 'Execute Detox'}
-                      {!isDetoxing && <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />}
                     </button>
                     <button 
                       onClick={handleDownloadReport}

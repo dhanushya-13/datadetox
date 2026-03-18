@@ -139,12 +139,42 @@ export default function App() {
         // Map backend data to DashboardData structure
         const totalStorage = 500 * 1024 * 1024 * 1024; // 500GB
         const usedStorage = (result.files.reduce((acc: number, f: any) => acc + f.size, 0)) + (result.storageOffset || 0);
-        const wellnessScore = result.wellnessScore || 50;
+        
+        // Dynamic wellness score calculation if not set
+        let wellnessScore = result.wellnessScore || 50;
+        if (result.files.length > 0) {
+          const efficiency = Math.max(0, 100 - (usedStorage / totalStorage * 100));
+          const recRatio = Math.max(0, 100 - (result.recommendations.length / result.files.length * 100));
+          wellnessScore = Math.floor((efficiency + recRatio) / 2);
+        }
+
+        // Calculate dynamic metrics
+        const metrics = [
+          { 
+            label: 'Digital Focus', 
+            value: Math.floor(wellnessScore * 1.2 > 100 ? 100 : wellnessScore * 1.2), 
+            trend: 'up' as const, 
+            status: wellnessScore > 70 ? 'good' as const : 'warning' as const 
+          },
+          { 
+            label: 'Storage Efficiency', 
+            value: Math.floor(Math.max(0, 100 - (usedStorage / totalStorage * 100))), 
+            trend: 'stable' as const, 
+            status: (usedStorage / totalStorage) < 0.7 ? 'good' as const : 'warning' as const 
+          },
+          { 
+            label: 'Organization', 
+            value: Math.floor(Math.max(0, 100 - (result.recommendations.length * 5))), 
+            trend: 'up' as const, 
+            status: result.recommendations.length < 10 ? 'good' as const : 'warning' as const 
+          }
+        ];
 
         setData(prev => ({
           ...prev,
           usedStorage,
           wellnessScore,
+          metrics,
           cleanupGoal: result.cleanupGoal,
           trends: trends || [],
           forecast: result.forecast || prev.forecast,

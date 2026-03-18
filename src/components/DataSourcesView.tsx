@@ -142,6 +142,12 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ user, onRefres
       formData.append('files', files[i]);
     }
 
+    console.log('Initiating upload to /api/upload', {
+      userId: user.id,
+      filesCount: files.length,
+      token: !!localStorage.getItem('token')
+    });
+
     try {
       // Simulate progress
       const interval = setInterval(() => {
@@ -167,7 +173,14 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ user, onRefres
       setUploadProgress(100);
 
       if (response.ok) {
-        const data = await response.json();
+        let data;
+        try {
+          data = await response.json();
+        } catch (e) {
+          const text = await response.text();
+          console.error('Failed to parse successful response as JSON:', text);
+          throw new Error('Server returned a successful status but invalid JSON response.');
+        }
         
         try {
           // Perform AI analysis on frontend
@@ -186,7 +199,7 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ user, onRefres
           `;
 
           const aiResponse = await ai.models.generateContent({
-            model: "gemini-flash-latest",
+            model: "gemini-3-flash-preview",
             contents: [{ parts: [{ text: prompt }] }],
           });
 
@@ -209,12 +222,18 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({ user, onRefres
           if (fileInputRef.current) fileInputRef.current.value = '';
         }, 1000);
       } else {
-        let errorMessage = 'Upload failed';
+        let errorMessage = `Upload failed with status ${response.status}`;
         try {
           const errorData = await response.json();
           errorMessage = errorData.error || errorMessage;
         } catch (e) {
-          errorMessage = `Upload failed with status ${response.status}`;
+          const text = await response.text();
+          console.error('Non-JSON error response:', text);
+          if (text.includes('<!doctype html>')) {
+            errorMessage = "Server returned an HTML error page. This usually indicates a routing or proxy issue.";
+          } else {
+            errorMessage = text.substring(0, 100) || errorMessage;
+          }
         }
         throw new Error(errorMessage);
       }
