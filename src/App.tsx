@@ -127,7 +127,7 @@ export default function App() {
     }
   };
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (): Promise<void> => {
     if (!user) return;
     try {
       const [result, trends] = await Promise.all([
@@ -290,8 +290,8 @@ export default function App() {
     }
   };
 
-  const handleAnalyze = async () => {
-    if (!user) return;
+  const handleAnalyze = async (): Promise<string | null> => {
+    if (!user) return null;
     try {
       const stats = await apiFetch<any>('/api/analyze/stats', {
         method: 'POST',
@@ -323,7 +323,7 @@ export default function App() {
         contents: [{ parts: [{ text: prompt }] }],
       });
 
-      return response.text;
+      return response.text ?? null;
     } catch (err) {
       console.error('Analysis failed:', err);
       return null;
