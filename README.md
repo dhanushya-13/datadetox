@@ -1,67 +1,171 @@
-# DataDetox: System Architecture & Research
+# DataDetox – AI-Powered Intelligent Data Cleanup & Digital Wellness System
 
-## 1. 3-Tier Architecture Overview
+DataDetox is an AI-powered full-stack web application designed to optimize digital storage through intelligent file analysis, duplicate detection, predictive storage forecasting, and personalized cleanup recommendations. The system combines Artificial Intelligence, data analytics, and modern web technologies to help users organize their storage efficiently while promoting digital wellness and privacy.
 
-### Tier 1: Local Monitoring Agent (Python)
-- **Role**: Edge data collection.
-- **Logic**: Uses `os.walk` for recursive scanning. Implements SHA-256 hashing for data integrity and duplicate identification.
-- **Security**: Only metadata (name, path, size, hash) is transmitted. No file content ever leaves the local environment.
+Unlike traditional storage management tools, DataDetox leverages Google Gemini AI to analyze user storage behavior, identify redundant files, assess cleanup risks, and provide intelligent recommendations based on usage patterns.
 
-### Tier 2: Neural Backend (Express + SQLite/PostgreSQL)
-- **Role**: Central Intelligence & Orchestration.
-- **Modules**:
-  - **Auth**: JWT-based secure session management.
-  - **Duplicate Engine**: Hash-matching algorithm with O(1) lookup in indexed database.
-  - **Forecasting**: Implements a moving-average growth model (ARIMA-lite) to predict disk-full events.
-  - **AI Recommendation**: Leverages Gemini 3 Flash for complex behavioral analysis and risk assessment.
+## Key Features
 
-### Tier 3: Aesthetic Intelligence Frontend (React)
-- **Role**: User-Centric Wellness Interface.
-- **Design**: Bento-grid layout with high-end typography (Playfair Display + Inter).
-- **Features**: Real-time WebSocket updates, cleanup simulation, and digital wellness scoring.
+- AI-powered storage analysis using Google Gemini
+- Intelligent duplicate file detection with SHA-256 hashing
+- Metadata-based similarity analysis
+- Personalized cleanup recommendations with confidence scoring
+- Predictive storage forecasting
+- Interactive dashboard with real-time analytics
+- Digital wellness monitoring
+- Secure authentication and access control
+- Backup management
+- Real-time WebSocket communication
+- Responsive and modern user interface
 
----
+## Technology Stack
 
-## 2. AI & ML Implementation
+| Category | Technologies |
+|----------|--------------|
+| **Frontend** | React.js, TypeScript, Tailwind CSS, Framer Motion |
+| **Backend** | Node.js, Express.js |
+| **Database** | PostgreSQL |
+| **Artificial Intelligence** | Google Gemini AI |
+| **Authentication** | JWT |
+| **Real-Time Communication** | WebSockets |
+| **Version Control** | Git & GitHub |
 
-### Duplicate Detection
-- **Exact Match**: Hash-based (SHA-256).
-- **Similarity**: Metadata correlation (size + type + name similarity).
+## System Architecture
 
-### Cleanup Recommendation Model
-- **Inputs**: `[Age, AccessFrequency, FileType, UserHistory, Size]`
-- **Logic**: Logistic Regression approach implemented via Neural Analysis.
-- **Confidence Scoring**: Probability mapping based on file "staleness" and redundancy.
+DataDetox follows a **three-tier architecture** to ensure scalability, security, and efficient data processing.
 
-### Storage Forecasting
-- **Algorithm**: Linear regression on historical `storage_trends` data.
-- **Alerting**: Triggers at 85% and 95% predicted thresholds.
+### Tier 1 – Local Monitoring Agent (Python)
 
----
+**Purpose**
 
-## 3. Research Component
+Edge-level data collection and preprocessing.
 
-### Precision & Recall Analysis
-- **Cleanup Prediction**:
-  - **Precision**: 0.98 (Focus on reducing False Positives to prevent accidental deletion).
-  - **Recall**: 0.85 (Conservative approach to ensure user safety).
-- **False Positive Reduction**: Implemented through "Confidence Thresholds" (90%+ required for high-priority recommendation).
+**Responsibilities**
 
-### Storage Forecasting Accuracy
-- **Metric**: Mean Absolute Percentage Error (MAPE) < 5% for 30-day windows.
+- Recursive file scanning using `os.walk()`
+- SHA-256 hash generation
+- Metadata extraction
+- Duplicate file identification
+- Secure metadata transmission
 
-### Comparison: Static vs. AI Adaptive Cleanup
-| Feature | Static Cleanup (CCleaner) | AI Adaptive (DataDetox) |
-|---------|---------------------------|-------------------------|
-| Personalization | None (Rule-based) | High (Behavior-based) |
-| Risk Management | Manual Review | AI Risk Scoring |
-| Forecasting | None | Predictive Growth Alerts |
-| Wellness | Storage only | Digital Wellness Focus |
+**Security**
 
----
+- Only metadata is transmitted
+- File contents never leave the local device
+- Zero-content storage policy
 
-## 4. Safety & Ethics
-- **No Auto-Delete**: User must explicitly approve all actions.
-- **Simulation Mode**: Visual preview of the "Clean State" before execution.
-- **Audit Logging**: Every recommendation and decision is logged for transparency.
-- **Data Privacy**: Zero-content storage policy.
+### Tier 2 – Backend Intelligence Layer (Node.js, Express.js & PostgreSQL)
+
+**Purpose**
+
+Central processing, AI orchestration, and secure data management.
+
+**Core Modules**
+
+- JWT Authentication
+- Duplicate Detection Engine
+- Storage Forecasting
+- AI Recommendation Engine
+- REST APIs
+- Database Management
+
+### Tier 3 – Frontend Presentation Layer (React & TypeScript)
+
+**Purpose**
+
+Interactive dashboard and visualization.
+
+**Features**
+
+- Dashboard
+- AI Analysis
+- Cleanup Center
+- Backup Management
+- Digital Wellness
+- Notifications
+- Access Control
+- Theme Customization
+
+## AI Implementation
+
+Google Gemini AI is integrated to provide intelligent storage recommendations based on metadata analysis and user behavior.
+
+### AI Capabilities
+
+- Duplicate Detection
+- Metadata Similarity Analysis
+- Intelligent Cleanup Recommendations
+- Confidence Scoring
+- Risk Assessment
+- Predictive Storage Forecasting
+
+## Project Workflow
+
+1. User Authentication
+2. File System Scanning
+3. Metadata Extraction
+4. SHA-256 Hash Generation
+5. Duplicate Detection
+6. AI Storage Analysis
+7. Storage Forecasting
+8. Cleanup Recommendation Generation
+9. Dashboard Visualization
+10. User Review & Cleanup Approval
+
+## Dashboard Modules
+
+The application consists of the following modules:
+
+- Dashboard
+- AI Analysis
+- Cleanup Center
+- Data Sources
+- Backup Management
+- Access Control
+- Digital Wellness
+- Notifications
+- System Settings
+
+## Research Highlights
+
+- SHA-256 based duplicate detection
+- AI-powered storage optimization
+- Metadata-only analysis for enhanced privacy
+- Confidence-based cleanup recommendations
+- Predictive storage forecasting
+- Real-time dashboard using WebSockets
+- Privacy-first storage management
+
+
+## Security & Privacy
+
+DataDetox is built with security and user privacy as its highest priorities.
+
+### Security Features
+
+- JWT Authentication
+- Secure REST APIs
+- Protected User Sessions
+- Role-Based Access Control
+- Audit Logging
+
+### Privacy
+
+- Zero-content storage policy
+- Only metadata is processed
+- No user file contents are uploaded
+- User approval required before cleanup
+- Cleanup simulation before execution
+
+## Future Enhancements
+
+- Cloud Storage Integration (Google Drive, OneDrive, Dropbox)
+- Mobile Application Development
+- Automated Scheduled Cleanup
+- AI-Based File Categorization
+- Advanced Predictive Storage Analytics
+- Email Notifications
+- Multi-User Collaboration
+- Intelligent File Compression
+- Enhanced Behavioral Learning Models
+
